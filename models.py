@@ -1,4 +1,4 @@
-"""SQLAlchemy models for users, permissions, and feedback."""
+"""SQLAlchemy models for users, permissions, feedback, playlists, comments, and invitations."""
 
 import uuid
 from datetime import datetime, timezone
@@ -110,3 +110,93 @@ class Vote(Base):
     job_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     value: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # +1 or -1
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Playlist(Base):
+    __tablename__ = "playlists"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    user: Mapped["User"] = relationship()
+    items: Mapped[list["PlaylistItem"]] = relationship(back_populates="playlist", cascade="all, delete-orphan", order_by="PlaylistItem.position")
+
+    def to_dict(self, include_items=False):
+        d = {
+            "id": str(self.id),
+            "name": self.name,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "item_count": len(self.items) if self.items else 0,
+        }
+        if include_items:
+            d["items"] = [item.to_dict() for item in (self.items or [])]
+        return d
+
+
+class PlaylistItem(Base):
+    __tablename__ = "playlist_items"
+    __table_args__ = (
+        UniqueConstraint("playlist_id", "job_id", name="uq_playlist_job"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    playlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False)
+    job_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    playlist: Mapped["Playlist"] = relationship(back_populates="items")
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "job_id": self.job_id,
+            "position": self.position,
+            "added_at": self.added_at.isoformat() if self.added_at else None,
+        }
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    job_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    user: Mapped["User"] = relationship()
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id),
+            "user_name": self.user.name if self.user else None,
+            "user_picture": self.user.picture_url if self.user else None,
+            "job_id": self.job_id,
+            "text": self.text,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Invitation(Base):
+    __tablename__ = "invitations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    inviter_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # "pending", "accepted"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    inviter: Mapped["User"] = relationship()
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "email": self.email,
+            "inviter_name": self.inviter.name if self.inviter else None,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

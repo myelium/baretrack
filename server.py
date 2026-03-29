@@ -29,7 +29,7 @@ from auth import (
     get_optional_user, hash_password, require_admin, verify_password,
 )
 from database import get_db
-from models import Feedback, User, UserPermissions, Vote
+from models import Comment, Feedback, Invitation, Playlist, PlaylistItem, User, UserPermissions, Vote
 
 import shutil
 
@@ -194,6 +194,11 @@ def _process_next_in_queue() -> None:
             target=_run_subtitled_pipeline,
             args=(job_id, url, output_dir, languages),
             daemon=True)
+    elif mode == "both":
+        thread = threading.Thread(
+            target=_run_combined_pipeline,
+            args=(job_id, url, output_dir, languages),
+            daemon=True)
     else:
         thread = threading.Thread(
             target=_run_pipeline,
@@ -225,6 +230,17 @@ STEP_NAMES_SUBTITLED = {
     2: "Transcribing",
     3: "Translating",
 }
+
+STEP_NAMES_BOTH = {
+    1: "Downloading",
+    2: "Separating vocals",
+    3: "Transcribing lyrics",
+    4: "Building subtitles",
+    5: "Composing video",
+    6: "Translating",
+}
+
+VALID_MODES = ("karaoke", "subtitled", "both")
 
 # Language code → full name for Claude translation prompts
 LANG_FULL_NAMES = {
@@ -666,6 +682,177 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
         _on_job_finished()
 
 
+def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
+                           languages: list[str] | None = None) -> None:
+    """Run karaoke + subtitles in a single pipeline (6 steps)."""
+    if not languages:
+        languages = []
+    try:
+        device = "cpu"
+        work_dir = output_dir / "work"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        video_path = work_dir / "video.mp4"
+        audio_path = work_dir / "audio.wav"
+        instrumental_mp3 = output_dir / "instrumental.mp3"
+        vocals_mp3 = output_dir / "vocals.mp3"
+        subtitles_path = work_dir / "karaoke.ass"
+        output_path = output_dir / "karaoke.mp4"
+
+        step_durations: dict[str, float] = {}
+
+        # --- Step 1: Download ---
+        t0 = time.monotonic()
+        _update_job(step=1, step_name=STEP_NAMES_BOTH[1], step_progress=0.0,
+                     step_started_at=_now_iso())
+        _save_job_json()
+
+        def _dl_progress(pct: float) -> None:
+            _update_job(step_progress=pct)
+
+        video_path, audio_path = download(url, work_dir, progress_callback=_dl_progress)
+        step_durations["1"] = time.monotonic() - t0
+        _update_job(step_progress=1.0, artifacts={
+            1: [{"name": "video.mp4", "path": "work/video.mp4"}],
+        })
+
+        # Compute time estimates
+        audio_duration = _get_audio_duration(audio_path)
+        estimates = _compute_estimates(audio_duration)
+        # Add estimate for step 6 (translation)
+        est_translate = audio_duration * 2.0 * max(len(languages), 1)
+        estimates.append(est_translate)
+        estimates[0] = step_durations.get("1", estimates[0])
+        _update_job(
+            audio_duration=audio_duration,
+            step_estimates=estimates,
+            estimated_total=sum(estimates),
+        )
+
+        # --- Step 2: Separate ---
+        if _check_pause(): return
+        t0 = time.monotonic()
+        _update_job(step=2, step_name=STEP_NAMES_BOTH[2], step_progress=0.0,
+                     step_started_at=_now_iso())
+        _save_job_json()
+        instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs")
+        _convert_to_mp3(instrumental_wav, instrumental_mp3)
+        _convert_to_mp3(vocals_wav, vocals_mp3)
+        instrumental_wav.unlink(missing_ok=True)
+        vocals_wav.unlink(missing_ok=True)
+        audio_path.unlink(missing_ok=True)
+        step_durations["2"] = time.monotonic() - t0
+        with _lock:
+            artifacts = dict(_job.get("artifacts", {}))
+        artifacts[2] = [
+            {"name": "instrumental.mp3", "path": "instrumental.mp3"},
+            {"name": "vocals.mp3", "path": "vocals.mp3"},
+        ]
+        _update_job(step_progress=1.0, artifacts=artifacts)
+
+        # --- Step 3: Transcribe ---
+        if _check_pause(): return
+        t0 = time.monotonic()
+        _update_job(step=3, step_name=STEP_NAMES_BOTH[3], step_progress=0.0,
+                     step_started_at=_now_iso())
+        _save_job_json()
+        segments = transcribe(vocals_mp3, device=device)
+        words_list = []
+        for seg in segments:
+            for w in seg.words:
+                words_list.append({"text": w.text, "start": w.start, "end": w.end})
+        (output_dir / "lyrics.json").write_text(json.dumps(words_list))
+        step_durations["3"] = time.monotonic() - t0
+        with _lock:
+            artifacts = dict(_job.get("artifacts", {}))
+        artifacts[3] = [{"name": "lyrics.json", "path": "lyrics.json"}]
+        _update_job(step_progress=1.0, artifacts=artifacts)
+
+        # --- Step 4: Build ASS subtitles ---
+        if _check_pause(): return
+        t0 = time.monotonic()
+        _update_job(step=4, step_name=STEP_NAMES_BOTH[4], step_progress=0.0,
+                     step_started_at=_now_iso())
+        build_ass(segments, subtitles_path)
+        step_durations["4"] = time.monotonic() - t0
+        with _lock:
+            artifacts = dict(_job.get("artifacts", {}))
+        artifacts[4] = []
+        _update_job(step_progress=1.0, artifacts=artifacts)
+
+        # --- Step 5: Compose video ---
+        if _check_pause(): return
+        t0 = time.monotonic()
+        _update_job(step=5, step_name=STEP_NAMES_BOTH[5], step_progress=0.0,
+                     step_started_at=_now_iso())
+        _save_job_json()
+        if output_path.exists():
+            output_path.unlink()
+
+        def _compose_progress(pct: float) -> None:
+            _update_job(step_progress=pct)
+
+        compose(video_path, instrumental_mp3, subtitles_path, output_path,
+                duration=audio_duration, progress_callback=_compose_progress)
+        step_durations["5"] = time.monotonic() - t0
+        _update_job(step_progress=1.0)
+
+        # --- Step 6: Translate subtitles ---
+        if _check_pause(): return
+        srt_artifacts = []
+        if languages:
+            t0 = time.monotonic()
+            # Build source SRT from transcription for Claude translation
+            source_srt_path = output_dir / "subtitles_source.srt"
+            build_srt(segments, source_srt_path)
+            source_srt_text = source_srt_path.read_text()
+
+            for i, lang in enumerate(languages):
+                target_name = LANG_FULL_NAMES.get(lang, lang)
+                label = (f"Translating to {target_name}"
+                         f" ({i+1} of {len(languages)})" if len(languages) > 1
+                         else f"Translating to {target_name}")
+                _update_job(step=6, step_name=label,
+                             step_progress=i / len(languages),
+                             step_started_at=_now_iso())
+                _save_job_json()
+
+                with _lock:
+                    job_title = _job.get("title") if _job else None
+                    job_channel = _job.get("channel") if _job else None
+                translated_srt = translate_srt(source_srt_text, target_name,
+                                               title=job_title, artist=job_channel)
+                srt_name = f"subtitles_{lang}.srt"
+                (output_dir / srt_name).write_text(translated_srt)
+                srt_artifacts.append({"name": srt_name, "path": srt_name})
+
+            step_durations["6"] = time.monotonic() - t0
+            source_srt_path.unlink(missing_ok=True)
+
+        with _lock:
+            artifacts = dict(_job.get("artifacts", {}))
+        artifacts[5] = [{"name": "karaoke.mp4", "path": "karaoke.mp4"}]
+        if srt_artifacts:
+            artifacts[6] = srt_artifacts
+        _update_job(step_progress=1.0, artifacts=artifacts)
+
+        # Save timing stats
+        if audio_duration > 0 and step_durations:
+            _save_stats(audio_duration, step_durations)
+
+        _cleanup_work_dir(work_dir)
+
+        _update_job(status="done", finished_at=_now_iso(),
+                    step_durations=step_durations)
+        _save_job_json()
+        _on_job_finished()
+
+    except Exception as e:
+        _update_job(status="failed", error=str(e), finished_at=_now_iso())
+        _save_job_json()
+        _on_job_finished()
+
+
 # ---------------------------------------------------------------------------
 # Startup recovery
 # ---------------------------------------------------------------------------
@@ -908,12 +1095,12 @@ def create_job(req: JobRequest):
     output_dir = JOBS_DIR / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    mode = req.mode if req.mode in ("karaoke", "subtitled") else "karaoke"
+    mode = req.mode if req.mode in VALID_MODES else "karaoke"
     # Support both old single language and new multi-language
     languages = req.languages[:3] if req.languages else (
         [req.language] if req.language else []
     )
-    if mode != "subtitled":
+    if mode not in ("subtitled", "both"):
         languages = []
 
     _job = {
@@ -948,6 +1135,11 @@ def create_job(req: JobRequest):
             target=_run_subtitled_pipeline,
             args=(job_id, req.url, output_dir, languages),
             daemon=True)
+    elif mode == "both":
+        thread = threading.Thread(
+            target=_run_combined_pipeline,
+            args=(job_id, req.url, output_dir, languages),
+            daemon=True)
     else:
         thread = threading.Thread(
             target=_run_pipeline,
@@ -977,9 +1169,9 @@ class QueueRequest(BaseModel):
 @app.post("/api/queue")
 def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_user)):
     """Add an item to the production queue."""
-    mode = req.mode if req.mode in ("karaoke", "subtitled") else "karaoke"
+    mode = req.mode if req.mode in VALID_MODES else "karaoke"
     languages = req.languages[:3] if req.languages else []
-    if mode != "subtitled":
+    if mode not in ("subtitled", "both"):
         languages = []
 
     # Fetch metadata
@@ -1318,7 +1510,9 @@ def check_url_in_library(url: str, mode: str = "karaoke"):
             continue
         if data.get("status") != "done":
             continue
-        if data.get("mode", "karaoke") != mode:
+        existing_mode = data.get("mode", "karaoke")
+        # "both" covers both karaoke and subtitled
+        if existing_mode != mode and not (existing_mode == "both" and mode in ("karaoke", "subtitled")):
             continue
         existing_id = _extract_video_id(data.get("url", ""))
         if existing_id == video_id:
@@ -1649,6 +1843,215 @@ def _get_vote_summary(job_id: str, user_id, db: Session) -> dict:
         if existing:
             user_vote = existing.value
     return {"job_id": job_id, "upvotes": upvotes, "downvotes": downvotes, "user_vote": user_vote}
+
+
+# ---------------------------------------------------------------------------
+# Playlists API
+# ---------------------------------------------------------------------------
+
+class CreatePlaylistRequest(BaseModel):
+    name: str
+
+
+class AddToPlaylistRequest(BaseModel):
+    job_id: str
+
+
+@app.get("/api/playlists")
+def list_playlists(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """List all playlists for the current user."""
+    playlists = db.query(Playlist).filter(Playlist.user_id == user.id).order_by(Playlist.created_at.desc()).all()
+    return {"playlists": [p.to_dict(include_items=True) for p in playlists]}
+
+
+@app.post("/api/playlists")
+def create_playlist(req: CreatePlaylistRequest, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """Create a new playlist."""
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(400, "Playlist name is required")
+    if len(name) > 100:
+        raise HTTPException(400, "Playlist name too long")
+    pl = Playlist(user_id=user.id, name=name)
+    db.add(pl)
+    db.commit()
+    db.refresh(pl)
+    return {"playlist": pl.to_dict()}
+
+
+@app.delete("/api/playlists/{playlist_id}")
+def delete_playlist(playlist_id: str, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """Delete a playlist owned by the current user."""
+    pl = db.query(Playlist).filter(Playlist.id == playlist_id, Playlist.user_id == user.id).first()
+    if not pl:
+        raise HTTPException(404, "Playlist not found")
+    db.delete(pl)
+    db.commit()
+    return {"deleted": True}
+
+
+@app.put("/api/playlists/{playlist_id}")
+def rename_playlist(playlist_id: str, req: CreatePlaylistRequest,
+                    user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Rename a playlist."""
+    pl = db.query(Playlist).filter(Playlist.id == playlist_id, Playlist.user_id == user.id).first()
+    if not pl:
+        raise HTTPException(404, "Playlist not found")
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(400, "Playlist name is required")
+    pl.name = name
+    db.commit()
+    return {"playlist": pl.to_dict(include_items=True)}
+
+
+@app.post("/api/playlists/{playlist_id}/items")
+def add_to_playlist(playlist_id: str, req: AddToPlaylistRequest,
+                    user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Add a song to a playlist."""
+    pl = db.query(Playlist).filter(Playlist.id == playlist_id, Playlist.user_id == user.id).first()
+    if not pl:
+        raise HTTPException(404, "Playlist not found")
+    existing = db.query(PlaylistItem).filter(
+        PlaylistItem.playlist_id == pl.id, PlaylistItem.job_id == req.job_id
+    ).first()
+    if existing:
+        raise HTTPException(409, "Song already in playlist")
+    max_pos = db.query(PlaylistItem.position).filter(
+        PlaylistItem.playlist_id == pl.id
+    ).order_by(PlaylistItem.position.desc()).first()
+    position = (max_pos[0] + 1) if max_pos else 0
+    item = PlaylistItem(playlist_id=pl.id, job_id=req.job_id, position=position)
+    db.add(item)
+    db.commit()
+    db.refresh(pl)
+    return {"playlist": pl.to_dict(include_items=True)}
+
+
+@app.delete("/api/playlists/{playlist_id}/items/{job_id}")
+def remove_from_playlist(playlist_id: str, job_id: str,
+                         user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Remove a song from a playlist."""
+    pl = db.query(Playlist).filter(Playlist.id == playlist_id, Playlist.user_id == user.id).first()
+    if not pl:
+        raise HTTPException(404, "Playlist not found")
+    item = db.query(PlaylistItem).filter(
+        PlaylistItem.playlist_id == pl.id, PlaylistItem.job_id == job_id
+    ).first()
+    if not item:
+        raise HTTPException(404, "Song not in playlist")
+    db.delete(item)
+    db.commit()
+    db.refresh(pl)
+    return {"playlist": pl.to_dict(include_items=True)}
+
+
+class ReorderPlaylistRequest(BaseModel):
+    job_ids: list[str]  # ordered list of job IDs
+
+
+@app.post("/api/playlists/{playlist_id}/reorder")
+def reorder_playlist(playlist_id: str, req: ReorderPlaylistRequest,
+                     user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Reorder songs in a playlist."""
+    pl = db.query(Playlist).filter(Playlist.id == playlist_id, Playlist.user_id == user.id).first()
+    if not pl:
+        raise HTTPException(404, "Playlist not found")
+    items_by_job = {item.job_id: item for item in pl.items}
+    for pos, job_id in enumerate(req.job_ids):
+        if job_id in items_by_job:
+            items_by_job[job_id].position = pos
+    db.commit()
+    db.refresh(pl)
+    return {"playlist": pl.to_dict(include_items=True)}
+
+
+# ---------------------------------------------------------------------------
+# Comments API
+# ---------------------------------------------------------------------------
+
+class CommentRequest(BaseModel):
+    text: str
+
+
+@app.get("/api/jobs/{job_id}/comments")
+def get_comments(job_id: str, db: Session = Depends(get_db)):
+    """Get all comments for a song."""
+    comments = db.query(Comment).filter(Comment.job_id == job_id).order_by(Comment.created_at.asc()).all()
+    return {"comments": [c.to_dict() for c in comments]}
+
+
+@app.post("/api/jobs/{job_id}/comments")
+def post_comment(job_id: str, req: CommentRequest, user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Post a comment on a song."""
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(400, "Comment text is required")
+    if len(text) > 2000:
+        raise HTTPException(400, "Comment too long (max 2000 characters)")
+    comment = Comment(user_id=user.id, job_id=job_id, text=text)
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return {"comment": comment.to_dict()}
+
+
+@app.delete("/api/comments/{comment_id}")
+def delete_comment(comment_id: str, user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Delete own comment (or any if admin)."""
+    comment = db.query(Comment).filter(Comment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(404, "Comment not found")
+    if str(comment.user_id) != str(user.id) and user.role != "admin":
+        raise HTTPException(403, "Cannot delete this comment")
+    db.delete(comment)
+    db.commit()
+    return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Invitations API
+# ---------------------------------------------------------------------------
+
+class InviteRequest(BaseModel):
+    emails: list[str]
+
+
+@app.post("/api/invitations")
+def send_invitations(req: InviteRequest, user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Send email invitations to friends."""
+    import re
+    sent = []
+    for email in req.emails[:10]:  # max 10 at a time
+        email = email.strip().lower()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            continue
+        # Skip if already a user
+        if db.query(User).filter(User.email == email).first():
+            continue
+        # Skip if already invited by this user
+        existing = db.query(Invitation).filter(
+            Invitation.inviter_id == user.id, Invitation.email == email
+        ).first()
+        if existing:
+            continue
+        inv = Invitation(inviter_id=user.id, email=email)
+        db.add(inv)
+        sent.append(email)
+    db.commit()
+    return {"sent": sent, "count": len(sent)}
+
+
+@app.get("/api/invitations")
+def list_invitations(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """List invitations sent by the current user."""
+    invites = db.query(Invitation).filter(Invitation.inviter_id == user.id).order_by(Invitation.created_at.desc()).all()
+    return {"invitations": [i.to_dict() for i in invites]}
 
 
 # ---------------------------------------------------------------------------

@@ -141,23 +141,40 @@
     align-items: center;
     gap: 12px;
   }
-  .darkmode-toggle {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
+  /* --- Dark mode 3-state slider --- */
+  .darkmode-slider {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--bg-input);
     border: 1px solid var(--border-accent);
-    background: transparent;
-    color: var(--text-dim);
-    font-size: 0.85rem;
+    border-radius: 14px;
+    padding: 2px;
+    cursor: pointer;
+    height: 26px;
+  }
+  .darkmode-slider-opt {
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 28px;
+    height: 22px;
+    border-radius: 11px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
     cursor: pointer;
-    transition: color 0.2s, border-color 0.2s;
+    transition: background 0.2s, color 0.2s;
     padding: 0;
     line-height: 1;
   }
-  .darkmode-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  .darkmode-slider-opt:hover { color: var(--text); }
+  .darkmode-slider-opt.active {
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+  .darkmode-slider-opt svg { width: 13px; height: 13px; }
 
   .user-menu {
     position: relative;
@@ -327,7 +344,8 @@
     color: #c0b090;
   }
 
-  .mode-row input[type="radio"] {
+  .mode-row input[type="radio"],
+  .mode-row input[type="checkbox"] {
     accent-color: #b48c3c;
     width: 16px;
     height: 16px;
@@ -615,7 +633,7 @@
   .tabs {
     display: flex;
     gap: 4px;
-    margin-bottom: 16px;
+    margin-bottom: 0;
   }
   .tab {
     flex: 1;
@@ -661,7 +679,7 @@
   .video-container:fullscreen .vocal-toggle { bottom: 70px; }
   .karaoke-fullscreen-btn {
     position: absolute;
-    bottom: 56px;
+    bottom: 64px;
     left: 12px;
     background: rgba(26,22,18,0.85);
     backdrop-filter: blur(6px);
@@ -757,7 +775,7 @@
   }
   .vocal-toggle {
     position: absolute;
-    bottom: 56px;
+    bottom: 64px;
     right: 12px;
     display: flex;
     align-items: center;
@@ -1095,6 +1113,7 @@
   }
   .library-mode-badge.subtitled { color: #7eb8da; border-color: rgba(126,184,218,0.4); }
   .library-mode-badge.karaoke { color: #d4a84b; border-color: rgba(212,168,75,0.4); }
+  .library-mode-badge.both { color: #a0d890; border-color: rgba(160,216,144,0.4); }
 
   .library-delete-btn {
     position: absolute;
@@ -1268,13 +1287,81 @@
   }
   .player-overlay-content {
     width: 100%;
-    max-width: 900px;
+    max-width: 1260px;
     background: #231e18;
     border-radius: 16px;
     padding: 32px;
     border: 1px solid #3a3226;
     box-shadow: 0 8px 48px rgba(0,0,0,0.6);
     position: relative;
+  }
+  .player-layout {
+    display: flex;
+    gap: 20px;
+    align-items: stretch;
+  }
+  .player-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .player-comments-side {
+    flex: 0 0 340px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-input);
+    overflow: hidden;
+  }
+  .player-comments-side .comments-header {
+    padding: 12px 14px;
+    margin: 0;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .player-comments-side .comment-input-row {
+    padding: 10px 14px;
+    margin: 0;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .player-comments-side .comments-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 14px;
+    max-height: none;
+  }
+  @media (max-width: 900px) {
+    .player-layout { flex-direction: column; }
+    .player-comments-side { flex: none; max-height: 300px; }
+  }
+
+  /* --- Lyrics panel toggle --- */
+  .lyrics-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 6px 12px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    width: fit-content;
+  }
+  .lyrics-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  .lyrics-toggle .arrow {
+    display: inline-block;
+    transition: transform 0.2s;
+    font-size: 0.65rem;
+  }
+  .lyrics-toggle.collapsed .arrow { transform: rotate(-90deg); }
+  .lyrics-panel.collapsed {
+    display: none !important;
   }
   .player-overlay-actions {
     position: absolute;
@@ -1537,6 +1624,260 @@
   .queue-action-btn:hover { color: #e8d5a3; background: rgba(255,255,255,0.05); }
   .queue-action-btn.remove:hover { color: #e07050; }
 
+  /* --- Playlist "+" Button (in library grid items, right of share) --- */
+  .library-playlist-btn {
+    position: absolute;
+    bottom: 10px;
+    right: 44px;
+    width: 28px; height: 28px; padding: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(74,63,47,0.5);
+    background: rgba(26,22,18,0.85);
+    backdrop-filter: blur(4px);
+    color: #8a7e6b;
+    font-size: 0.85rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0.7;
+    transition: opacity 0.2s, color 0.2s, border-color 0.2s;
+  }
+  .library-playlist-btn:hover { color: var(--accent); border-color: rgba(180,140,60,0.5); }
+
+  /* --- Playlist Dropdown (floating popup from "+" on grid item) --- */
+  .playlist-dropdown {
+    position: fixed;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 4px 0; min-width: 200px; box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+    z-index: 600; max-height: 260px; overflow-y: auto;
+  }
+  .playlist-dropdown-item {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; padding: 7px 14px; background: none; border: none;
+    color: var(--text); font-size: 0.8rem; font-family: inherit;
+    text-align: left; cursor: pointer; transition: background 0.2s; gap: 8px;
+  }
+  .playlist-dropdown-item:hover { background: var(--bg-hover); }
+  .playlist-dropdown-item .checkmark { color: var(--accent); font-weight: 700; }
+  .playlist-dropdown-create {
+    display: flex; padding: 6px 10px; gap: 6px; border-top: 1px solid var(--border);
+  }
+  .playlist-dropdown-create input {
+    flex: 1; padding: 4px 8px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 0.75rem; font-family: inherit;
+  }
+  .playlist-dropdown-create button {
+    padding: 4px 10px; background: var(--accent); color: var(--accent-text); border: none;
+    border-radius: 6px; font-size: 0.75rem; cursor: pointer; font-family: inherit; font-weight: 600;
+  }
+
+  /* --- Header links (icon + label) --- */
+  .header-link {
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    padding: 4px 0; display: flex; align-items: center; gap: 5px;
+    font-size: 0.78rem; font-weight: 400; font-family: inherit; transition: color 0.2s; white-space: nowrap;
+  }
+  .header-link:hover { color: var(--accent); }
+  .header-link svg { flex-shrink: 0; }
+
+  /* --- Playlists Overlay --- */
+  .playlists-list { display: flex; flex-direction: column; gap: 6px; }
+  .playlists-list-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 10px; cursor: pointer; transition: border-color 0.2s;
+  }
+  .playlists-list-item:hover { border-color: var(--accent); }
+  .playlists-list-item .pl-name { font-size: 0.9rem; color: var(--text-bright); font-weight: 500; }
+  .playlists-list-item .pl-count { font-size: 0.75rem; color: var(--text-muted); }
+  .playlists-list-item .pl-actions { display: flex; gap: 6px; }
+  .playlists-list-item .pl-action-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 0.8rem; padding: 2px 4px; transition: color 0.2s;
+  }
+  .playlists-list-item .pl-action-btn:hover { color: var(--error); }
+  .playlist-create-row {
+    display: flex; gap: 8px; margin-bottom: 16px;
+  }
+  .playlist-create-row input {
+    flex: 1; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 0.85rem; font-family: inherit;
+  }
+  .playlist-create-row input::placeholder { color: var(--text-muted); }
+  .playlist-create-row button {
+    padding: 8px 16px; background: var(--accent); color: var(--accent-text); border: none;
+    border-radius: 8px; font-size: 0.85rem; cursor: pointer; font-weight: 600; font-family: inherit;
+  }
+
+  /* --- Playlist detail view (songs list inside overlay) --- */
+  .pl-detail-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+  }
+  .pl-detail-back {
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 1.2rem; padding: 4px 8px; transition: color 0.2s; line-height: 1;
+  }
+  .pl-detail-back:hover { color: var(--accent); }
+  .pl-detail-title { font-size: 1rem; font-weight: 600; color: var(--text-bright); flex: 1; }
+  .pl-detail-actions {
+    display: flex; gap: 6px;
+  }
+  .pl-detail-btn {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg-input); color: var(--text); font-size: 0.78rem;
+    font-family: inherit; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+  }
+  .pl-detail-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .pl-detail-btn.primary {
+    background: var(--accent); color: var(--accent-text); border-color: var(--accent);
+  }
+  .pl-detail-btn.primary:hover { background: var(--accent-hover); }
+  .pl-detail-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+  .pl-songs-list { display: flex; flex-direction: column; gap: 4px; max-height: 400px; overflow-y: auto; }
+  .pl-song-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    cursor: grab; transition: border-color 0.2s, background 0.2s; user-select: none;
+  }
+  .pl-song-item:hover { border-color: var(--border-accent); }
+  .pl-song-item.dragging { opacity: 0.5; border-color: var(--accent); }
+  .pl-song-item img { pointer-events: none; }
+  .pl-song-item.drag-over { border-color: var(--accent); background: var(--bg-hover); }
+  .pl-song-item.now-playing { border-color: var(--accent); background: rgba(180,140,60,0.1); }
+  .pl-song-drag {
+    color: var(--text-muted); font-size: 0.75rem; cursor: grab; flex-shrink: 0; padding: 0 2px;
+  }
+  .pl-song-thumb {
+    width: 48px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0;
+    background: var(--bg-base);
+  }
+  .pl-song-info { flex: 1; min-width: 0; }
+  .pl-song-info .title {
+    font-size: 0.82rem; color: var(--text-bright); font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pl-song-info .channel {
+    font-size: 0.7rem; color: var(--text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pl-song-remove {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 0.85rem; padding: 4px; transition: color 0.2s; flex-shrink: 0;
+  }
+  .pl-song-remove:hover { color: var(--error); }
+  .pl-song-play {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 0.85rem; padding: 4px; transition: color 0.2s; flex-shrink: 0;
+  }
+  .pl-song-play:hover { color: var(--accent); }
+  .pl-empty { color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 24px 0; }
+
+
+
+  /* --- Comments Section (side panel in player overlay) --- */
+  .comments-section {
+    display: flex; flex-direction: column; height: 100%;
+  }
+  .comments-header {
+    font-size: 0.8rem; color: var(--text-dim); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px;
+  }
+  .comment-input-row {
+    display: flex; gap: 8px; margin-bottom: 16px;
+  }
+  .comment-input-row input {
+    flex: 1; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 0.85rem; font-family: inherit;
+  }
+  .comment-input-row input::placeholder { color: var(--text-muted); }
+  .comment-input-row button {
+    padding: 8px 16px; background: var(--accent); color: var(--accent-text); border: none;
+    border-radius: 8px; font-size: 0.85rem; cursor: pointer; font-weight: 600; font-family: inherit;
+    white-space: nowrap;
+  }
+  .comment-input-row button:hover { background: var(--accent-hover); }
+  .comments-list {
+    max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+  }
+  .comment-item {
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .comment-avatar {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--border-accent);
+    color: var(--text-bright); display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; font-weight: 700; flex-shrink: 0;
+  }
+  .comment-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .comment-body { flex: 1; min-width: 0; }
+  .comment-meta {
+    font-size: 0.75rem; color: var(--text-dim); margin-bottom: 2px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .comment-meta .name { font-weight: 600; color: var(--text-bright); }
+  .comment-text { font-size: 0.85rem; color: var(--text); line-height: 1.4; word-break: break-word; }
+  .comment-delete {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 0.7rem; padding: 2px 4px; opacity: 0; transition: opacity 0.2s;
+  }
+  .comment-item:hover .comment-delete { opacity: 1; }
+  .comment-delete:hover { color: var(--error); }
+
+  /* --- Invite Friends Overlay --- */
+  .invite-tags {
+    display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0;
+  }
+  .invite-tag {
+    display: flex; align-items: center; gap: 4px; padding: 4px 10px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 16px;
+    font-size: 0.8rem; color: var(--text);
+  }
+  .invite-tag .remove-invite {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 0.85rem; line-height: 1; padding: 0 2px;
+  }
+  .invite-tag .remove-invite:hover { color: var(--error); }
+  .invite-sent-list {
+    margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px;
+  }
+  .invite-sent-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0; font-size: 0.8rem; border-bottom: 1px solid var(--border-light);
+  }
+  .invite-sent-item .email { color: var(--text); }
+  .invite-sent-item .status {
+    font-size: 0.7rem; text-transform: uppercase; font-weight: 600;
+  }
+  .invite-sent-item .status.pending { color: var(--text-muted); }
+  .invite-sent-item .status.accepted { color: var(--success); }
+
+  /* --- Custom confirm dialog --- */
+  .confirm-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    z-index: 1000; display: flex; align-items: center; justify-content: center;
+  }
+  .confirm-box {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; max-width: 360px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .confirm-box p {
+    color: var(--text-bright); font-size: 0.95rem; margin-bottom: 20px; line-height: 1.4;
+  }
+  .confirm-btns {
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+  .confirm-btns button {
+    padding: 7px 18px; border-radius: 8px; font-size: 0.85rem;
+    font-family: inherit; cursor: pointer; transition: all 0.2s;
+  }
+  .confirm-cancel {
+    background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+  }
+  .confirm-cancel:hover { border-color: var(--text-dim); }
+  .confirm-ok {
+    background: var(--error); border: 1px solid var(--error); color: #fff; font-weight: 600;
+  }
+  .confirm-ok:hover { opacity: 0.85; }
+
   .hidden { display: none !important; }
 </style>
 </head>
@@ -1560,8 +1901,8 @@
         <button class="btn-primary" id="btn-submit" onclick="addToQueue()">+ Add</button>
       </div>
       <div class="mode-row">
-        <label><input type="radio" name="mode" value="karaoke" checked onchange="onModeChange()"> Karaoke Song</label>
-        <label><input type="radio" name="mode" value="subtitled" onchange="onModeChange()"> Subtitled Video</label>
+        <label><input type="checkbox" id="mode-karaoke" checked onchange="onModeChange()"> Karaoke</label>
+        <label><input type="checkbox" id="mode-subtitled" onchange="onModeChange()"> Subtitles</label>
         <div class="lang-picker" id="lang-picker" style="display:none;">
           <div class="lang-chips" id="lang-chips"></div>
           <select id="lang-add-select" onchange="addLanguage(this.value); this.value='';" title="Add subtitle language">
@@ -1661,6 +2002,17 @@
   </div>
 </div>
 
+<!-- Profile Overlay -->
+<div id="profile-overlay" class="player-overlay hidden" onclick="if(event.target===this)closeProfile()">
+  <div class="player-overlay-content" style="max-width:420px;position:relative;">
+    <div class="player-overlay-actions">
+      <button class="player-overlay-close" onclick="closeProfile()">&times;</button>
+    </div>
+    <h3 style="color:var(--text-bright);margin-bottom:20px;font-size:1.1rem;">Profile</h3>
+    <div id="profile-info"></div>
+  </div>
+</div>
+
 <!-- Settings Overlay -->
 <div id="settings-overlay" class="player-overlay hidden" onclick="if(event.target===this)closeSettings()">
   <div class="player-overlay-content" style="max-width:450px;position:relative;">
@@ -1709,9 +2061,26 @@
       <button class="player-overlay-close" onclick="closePlayer()">&times;</button>
     </div>
     <div class="player-title" id="overlay-title"></div>
-    <div class="tabs" id="overlay-tabs"></div>
-    <div class="player-area" id="overlay-player-area"></div>
-    <div class="lyrics-panel" id="overlay-lyrics-panel"></div>
+    <div class="player-layout">
+      <div class="player-main">
+        <div class="tabs" id="overlay-tabs"></div>
+        <div class="player-area" id="overlay-player-area"></div>
+        <button class="lyrics-toggle" id="lyrics-toggle" onclick="toggleLyricsPanel()" style="display:none;">
+          <span class="arrow">&#9660;</span> Lyrics
+        </button>
+        <div class="lyrics-panel" id="overlay-lyrics-panel"></div>
+      </div>
+      <div class="player-comments-side">
+        <div class="comments-section" id="comments-section">
+          <div class="comments-header">Comments</div>
+          <div class="comment-input-row" id="comment-input-row" style="display:none;">
+            <input type="text" id="comment-input" placeholder="Add a comment..." maxlength="2000" onkeydown="if(event.key==='Enter')postComment()" />
+            <button onclick="postComment()">Comment</button>
+          </div>
+          <div class="comments-list" id="comments-list"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1726,10 +2095,74 @@
   </div>
 </div>
 
+<!-- Invite Friends Overlay -->
+<div id="invite-overlay" class="player-overlay hidden" onclick="if(event.target===this)closeInvite()">
+  <div class="player-overlay-content" style="max-width:480px;position:relative;">
+    <div class="player-overlay-actions">
+      <button class="player-overlay-close" onclick="closeInvite()">&times;</button>
+    </div>
+    <h3 style="color:var(--text-bright);margin-bottom:4px;font-size:1.1rem;">Invite Friends</h3>
+    <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:16px;">Invite friends to join Baretraks by email.</p>
+    <div style="display:flex;gap:8px;">
+      <input type="email" id="invite-email-input" placeholder="friend@example.com" onkeydown="if(event.key==='Enter')addInviteEmail()"
+        style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;" />
+      <button onclick="addInviteEmail()" style="padding:8px 14px;background:var(--bg-hover);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:0.85rem;cursor:pointer;font-family:inherit;">+ Add</button>
+    </div>
+    <div class="invite-tags" id="invite-tags"></div>
+    <button id="invite-send-btn" onclick="sendInvitations()" class="btn-primary" style="width:100%;margin-top:8px;display:none;">Send Invitations</button>
+    <div id="invite-status" style="margin-top:10px;font-size:0.8rem;color:var(--success);display:none;"></div>
+    <div class="invite-sent-list" id="invite-sent-list"></div>
+  </div>
+</div>
+
+<!-- Playlists Overlay -->
+<div id="playlists-overlay" class="player-overlay hidden" onclick="if(event.target===this)closePlaylists()">
+  <div class="player-overlay-content" style="max-width:560px;position:relative;">
+    <div class="player-overlay-actions">
+      <button class="player-overlay-close" onclick="closePlaylists()">&times;</button>
+    </div>
+    <!-- List view -->
+    <div id="playlists-list-view">
+      <h3 style="color:var(--text-bright);margin-bottom:4px;font-size:1.1rem;">My Playlists</h3>
+      <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:16px;">Create and manage your playlists.</p>
+      <div class="playlist-create-row">
+        <input type="text" id="playlist-overlay-input" placeholder="New playlist name..." maxlength="100" onkeydown="if(event.key==='Enter')createPlaylistFromOverlay()" />
+        <button onclick="createPlaylistFromOverlay()">Create</button>
+      </div>
+      <div class="playlists-list" id="playlists-overlay-list"></div>
+    </div>
+    <!-- Detail view (songs in a playlist) -->
+    <div id="playlists-detail-view" style="display:none;">
+      <div class="pl-detail-header">
+        <button class="pl-detail-back" onclick="showPlaylistListView()" title="Back">&larr;</button>
+        <div class="pl-detail-title" id="pl-detail-title"></div>
+        <div class="pl-detail-actions">
+          <button class="pl-detail-btn primary" onclick="playAllPlaylist()" title="Play All">
+            <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Play All
+          </button>
+          <button class="pl-detail-btn" onclick="shufflePlaylist()" title="Shuffle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+            Shuffle
+          </button>
+        </div>
+      </div>
+      <div class="pl-songs-list" id="pl-songs-list" ondragover="plDragOver(event)" ondrop="plDrop(event)"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 const STEP_NAMES_KARAOKE = ['Downloading', 'Separating vocals', 'Transcribing lyrics', 'Building subtitles', 'Composing video'];
 const STEP_NAMES_SUBTITLED = ['Downloading audio', 'Transcribing', 'Translating'];
+const STEP_NAMES_BOTH = ['Downloading', 'Separating vocals', 'Transcribing lyrics', 'Building subtitles', 'Composing video', 'Translating'];
 let STEP_NAMES = STEP_NAMES_KARAOKE;
+
+function getStepNamesForMode(mode) {
+  if (mode === 'subtitled') return STEP_NAMES_SUBTITLED;
+  if (mode === 'both') return STEP_NAMES_BOTH;
+  return STEP_NAMES_KARAOKE;
+}
 let pollInterval = null;
 let currentJob = null;
 let lyricsData = null;
@@ -1745,6 +2178,7 @@ function stopAllMedia() {
     activeMediaEl.removeEventListener('play', onMediaPlay);
     activeMediaEl.removeEventListener('pause', onMediaPause);
     activeMediaEl.removeEventListener('seeked', onMediaSeeked);
+    activeMediaEl.removeEventListener('ended', _onPlayerEnded);
     activeMediaEl.src = '';
     activeMediaEl = null;
   }
@@ -1764,6 +2198,25 @@ function closePlayer() {
   document.getElementById('overlay-tabs').innerHTML = '';
   document.getElementById('overlay-player-area').innerHTML = '';
   document.getElementById('overlay-lyrics-panel').innerHTML = '';
+  document.getElementById('comments-list').innerHTML = '';
+  document.getElementById('comment-input').value = '';
+  document.getElementById('lyrics-toggle').style.display = 'none';
+  currentPlayerJobId = null;
+}
+
+let lyricsCollapsed = false;
+
+function toggleLyricsPanel() {
+  lyricsCollapsed = !lyricsCollapsed;
+  const panel = document.getElementById('overlay-lyrics-panel');
+  const btn = document.getElementById('lyrics-toggle');
+  if (lyricsCollapsed) {
+    panel.classList.add('collapsed');
+    btn.classList.add('collapsed');
+  } else {
+    panel.classList.remove('collapsed');
+    btn.classList.remove('collapsed');
+  }
 }
 
 function expandProduction() {
@@ -1825,9 +2278,13 @@ async function addToQueue() {
   }
 
   const mode = getSelectedMode();
-  const languages = mode === 'subtitled' ? [...selectedLanguages] : [];
-  if (mode === 'subtitled' && languages.length === 0) {
+  const languages = (mode === 'subtitled' || mode === 'both') ? [...selectedLanguages] : [];
+  if ((mode === 'subtitled' || mode === 'both') && languages.length === 0) {
     alert('Please add at least one subtitle language.');
+    return;
+  }
+  if (mode === 'karaoke' && !document.getElementById('mode-karaoke').checked) {
+    alert('Please select at least one production mode.');
     return;
   }
 
@@ -1900,13 +2357,14 @@ function renderQueue() {
     const isFailed = item.status === 'failed';
     const isQueued = item.status === 'queued';
 
-    const modeLabel = item.mode === 'subtitled'
-      ? 'Subtitled' + (item.languages?.length ? ' · ' + item.languages.map(c => LANG_NAMES_ALL[c] || c).join(', ') : '')
-      : 'Karaoke';
+    const langSuffix = item.languages?.length ? ' · ' + item.languages.map(c => LANG_NAMES_ALL[c] || c).join(', ') : '';
+    const modeLabel = item.mode === 'both'
+      ? 'Karaoke + Subtitles' + langSuffix
+      : (item.mode === 'subtitled' ? 'Subtitled' + langSuffix : 'Karaoke');
 
     let statusLine = modeLabel;
     if (isProcessing && item.step_name) {
-      const totalSteps = item.mode === 'subtitled' ? STEP_NAMES_SUBTITLED.length : STEP_NAMES_KARAOKE.length;
+      const totalSteps = getStepNamesForMode(item.mode).length;
       const stepNum = item.step || 0;
       statusLine = stepNum > 0 ? `${stepNum}/${totalSteps} ${item.step_name}` : item.step_name;
     }
@@ -1915,7 +2373,7 @@ function renderQueue() {
 
     let icon = '';
     if (isProcessing) {
-      const totalSteps = item.mode === 'subtitled' ? STEP_NAMES_SUBTITLED.length : STEP_NAMES_KARAOKE.length;
+      const totalSteps = getStepNamesForMode(item.mode).length;
       const stepNum = item.step || 0;
       const stepProg = item.step_progress || 0;
       const overallPct = totalSteps > 0 ? Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100) : 0;
@@ -1932,7 +2390,7 @@ function renderQueue() {
 
     let progressBar = '';
     if (isProcessing) {
-      const totalSteps = item.mode === 'subtitled' ? STEP_NAMES_SUBTITLED.length : STEP_NAMES_KARAOKE.length;
+      const totalSteps = getStepNamesForMode(item.mode).length;
       const stepNum = item.step || 0;
       const stepProg = item.step_progress || 0;
       const barPct = totalSteps > 0 ? Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100) : 0;
@@ -2037,13 +2495,16 @@ let selectedLanguages = [];
 const MAX_LANGUAGES = 3;
 
 function getSelectedMode() {
-  const radio = document.querySelector('input[name="mode"]:checked');
-  return radio ? radio.value : 'karaoke';
+  const k = document.getElementById('mode-karaoke').checked;
+  const s = document.getElementById('mode-subtitled').checked;
+  if (k && s) return 'both';
+  if (s) return 'subtitled';
+  return 'karaoke';
 }
 
 function onModeChange() {
-  const mode = getSelectedMode();
-  document.getElementById('lang-picker').style.display = mode === 'subtitled' ? 'inline-flex' : 'none';
+  const s = document.getElementById('mode-subtitled').checked;
+  document.getElementById('lang-picker').style.display = s ? 'inline-flex' : 'none';
 }
 
 function addLanguage(code) {
@@ -2077,9 +2538,9 @@ async function submitJob(skipDuplicateCheck = false) {
   }
 
   const mode = getSelectedMode();
-  const languages = mode === 'subtitled' ? [...selectedLanguages] : [];
+  const languages = (mode === 'subtitled' || mode === 'both') ? [...selectedLanguages] : [];
 
-  if (mode === 'subtitled' && languages.length === 0) {
+  if ((mode === 'subtitled' || mode === 'both') && languages.length === 0) {
     alert('Please add at least one subtitle language.');
     return;
   }
@@ -2104,7 +2565,7 @@ async function submitJob(skipDuplicateCheck = false) {
     }
 
     // Set mode-aware step names
-    STEP_NAMES = mode === 'subtitled' ? STEP_NAMES_SUBTITLED : STEP_NAMES_KARAOKE;
+    STEP_NAMES = getStepNamesForMode(mode);
 
     btn.textContent = 'Submitting...';
     const body = { url, mode };
@@ -2179,7 +2640,7 @@ function showProcessing() {
   showState('processing');
   // Set step names based on job mode
   const jobMode = currentJob.mode || 'karaoke';
-  STEP_NAMES = jobMode === 'subtitled' ? STEP_NAMES_SUBTITLED : STEP_NAMES_KARAOKE;
+  STEP_NAMES = getStepNamesForMode(jobMode);
   const titleEl = document.getElementById('processing-title');
   titleEl.textContent = currentJob.title || 'Processing...';
 
@@ -2679,15 +3140,19 @@ async function showPlayerForJob(jobId) {
   const titleEl = document.getElementById('overlay-title');
   const item = libraryItems.find(i => i.id === jobId);
   titleEl.innerHTML = `
-    <span>${escapeHtml(currentJob.title || (jobMode === 'subtitled' ? 'Subtitled Video' : 'Karaoke'))}</span>
+    <span>${escapeHtml(currentJob.title || (jobMode === 'subtitled' ? 'Subtitled Video' : (jobMode === 'both' ? 'Karaoke + Subtitles' : 'Karaoke')))}</span>
     <span class="vote-controls" data-vote-id="${jobId}" style="margin-left:12px;">
       ${renderVoteControls(jobId, item?.upvotes || 0, item?.downvotes || 0, item?.user_vote || 0)}
     </span>
   `;
 
+  // Load comments for this song
+  loadComments(jobId);
+
   if (jobMode === 'subtitled') {
     _tabsEl().innerHTML = '';
     _lyricsPanelEl().innerHTML = '';
+    document.getElementById('lyrics-toggle').style.display = 'none';
     renderSubtitledPlayer(jobId, currentJob.url, currentJob.languages || (currentJob.language ? [currentJob.language] : []));
     return;
   }
@@ -2711,19 +3176,18 @@ async function showPlayer() {
 
 function renderTabs(jobId) {
   const id = jobId || currentJob.id;
+  const jobMode = currentJob ? currentJob.mode : 'karaoke';
+  const subtitledTab = jobMode === 'both' ? `
+    <div class="tab" data-tab="subtitled" onclick="switchTab('subtitled','${id}')">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      Subtitled
+    </div>` : '';
   _tabsEl().innerHTML = `
     <div class="tab active" data-tab="video" onclick="switchTab('video','${id}')">
       <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
       Karaoke Video
     </div>
-    <div class="tab" data-tab="instrumental" onclick="switchTab('instrumental','${id}')">
-      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-      Instrumental
-    </div>
-    <div class="tab" data-tab="vocals" onclick="switchTab('vocals','${id}')">
-      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-      Vocals Only
-    </div>
+    ${subtitledTab}
   `;
 }
 
@@ -2746,6 +3210,7 @@ function switchTab(tab, jobId) {
     activeMediaEl.removeEventListener('play', onMediaPlay);
     activeMediaEl.removeEventListener('pause', onMediaPause);
     activeMediaEl.removeEventListener('seeked', onMediaSeeked);
+    activeMediaEl.removeEventListener('ended', _onPlayerEnded);
   }
   // Destroy vocals sync when leaving video tab
   if (tab !== 'video') destroyVocalsSync();
@@ -2780,6 +3245,13 @@ function switchTab(tab, jobId) {
           Download Instrumental
         </a>
       </div>`;
+  } else if (tab === 'subtitled') {
+    // Subtitled tab for "both" mode — render YouTube player with subtitle overlay
+    const langs = currentJob.languages || (currentJob.language ? [currentJob.language] : []);
+    _lyricsPanelEl().innerHTML = '';
+    document.getElementById('lyrics-toggle').style.display = 'none';
+    renderSubtitledPlayer(id, currentJob.url, langs);
+    return;
   } else {
     area.innerHTML = `
       <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/vocals"></audio>
@@ -2793,11 +3265,27 @@ function switchTab(tab, jobId) {
 
   activeMediaEl = document.getElementById('media-el');
   activeMediaEl.addEventListener('timeupdate', onTimeUpdate);
+  activeMediaEl.addEventListener('ended', _onPlayerEnded);
 
   // Pre-load vocals audio for the video tab (must be after activeMediaEl is set)
   if (tab === 'video') preloadVocalsAudio(id);
 
   renderLyrics();
+
+  // Show lyrics toggle if we have lyrics
+  const toggleBtn = document.getElementById('lyrics-toggle');
+  if (toggleBtn) {
+    toggleBtn.style.display = (lyricsData && lyricsData.length > 0) ? 'flex' : 'none';
+    // Restore collapse state
+    const panel = document.getElementById('overlay-lyrics-panel');
+    if (lyricsCollapsed) {
+      panel.classList.add('collapsed');
+      toggleBtn.classList.add('collapsed');
+    } else {
+      panel.classList.remove('collapsed');
+      toggleBtn.classList.remove('collapsed');
+    }
+  }
 }
 
 // --- Vocal toggle sync ---
@@ -3005,7 +3493,8 @@ function renderLibraryFilterBar() {
   const typeCounts = {};
   for (const item of libraryItems) {
     if (item.channel) channelCounts[item.channel] = (channelCounts[item.channel] || 0) + 1;
-    const type = (item.mode || 'karaoke') === 'subtitled' ? 'Subtitled' : 'Karaoke';
+    const m = item.mode || 'karaoke';
+    const type = m === 'both' ? 'Karaoke + Subtitles' : (m === 'subtitled' ? 'Subtitled' : 'Karaoke');
     typeCounts[type] = (typeCounts[type] || 0) + 1;
   }
 
@@ -3063,7 +3552,7 @@ function clearFilters() {
 }
 
 async function deleteJob(jobId) {
-  if (!confirm('Delete this song and all its files? This cannot be undone.')) return;
+  if (!await showConfirm('Delete this song and all its files? This cannot be undone.')) return;
   try {
     const resp = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
     if (!resp.ok) {
@@ -3096,18 +3585,25 @@ function renderLibraryGrid() {
     }
     // Type filter
     if (libraryFilters.types.size > 0) {
-      const type = (item.mode || 'karaoke') === 'subtitled' ? 'Subtitled' : 'Karaoke';
+      const m = item.mode || 'karaoke';
+      const type = m === 'both' ? 'Karaoke + Subtitles' : (m === 'subtitled' ? 'Subtitled' : 'Karaoke');
       if (!libraryFilters.types.has(type)) return false;
     }
     return true;
   });
 
+  // Filter by active playlist
+  const playlistJobIds = getPlaylistJobIds();
+  if (playlistJobIds !== null) {
+    filtered = filtered.filter(item => playlistJobIds.has(item.id));
+  }
+
   if (filtered.length === 0) {
     main.innerHTML = `
       <div class="library-results-count">${libraryItems.length} songs, 0 matching</div>
-      <div class="library-empty"><p>No songs match your filters.</p></div>
+      <div class="library-empty"><p>${activePlaylistFilter !== null ? 'This playlist is empty.' : 'No songs match your filters.'}</p></div>
     `;
-    return;
+      return;
   }
 
   const count = '';
@@ -3121,14 +3617,14 @@ function renderLibraryGrid() {
       ? `<img class="library-thumb" src="${item.thumbnail}" alt="" loading="lazy" />`
       : `<div class="library-thumb" style="display:flex;align-items:center;justify-content:center;color:#4a3f2f;font-size:2rem;">&#9835;</div>`;
     const mode = item.mode || 'karaoke';
-    const badgeClass = mode === 'subtitled' ? 'subtitled' : 'karaoke';
-    let badgeText = mode === 'subtitled' ? 'Subtitled' : 'Karaoke';
+    const badgeClass = mode === 'both' ? 'both' : (mode === 'subtitled' ? 'subtitled' : 'karaoke');
+    let badgeText = mode === 'both' ? 'Karaoke + Subtitles' : (mode === 'subtitled' ? 'Subtitled' : 'Karaoke');
     const langs = item.languages || (item.language ? [item.language] : []);
-    if (mode === 'subtitled' && langs.length > 0) {
+    if ((mode === 'subtitled' || mode === 'both') && langs.length > 0) {
       badgeText += ' \u00b7 ' + langs.map(c => (LANG_NAMES_ALL[c] || c)).join(', ');
     }
     return `
-      <div class="library-item" onclick="showPlayerForJob('${item.id}')">
+      <div class="library-item" onclick="showPlayerForJob('${item.id}')" style="position:relative;">
         <div class="library-item-header">
           ${thumb}
           <span class="library-mode-badge ${badgeClass}">${badgeText}</span>
@@ -3144,11 +3640,33 @@ function renderLibraryGrid() {
         <button class="library-share-btn" onclick="event.stopPropagation(); shareLink('${item.id}')" title="Copy link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
+        ${currentUser ? `<button class="library-playlist-btn" onclick="togglePlaylistDropdown('${item.id}', event)" title="Add to playlist">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>` : ''}
       </div>
     `;
   }).join('');
 
   main.innerHTML = count + '<div class="library-grid">' + grid + '</div>';
+}
+
+function showConfirm(message) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.innerHTML = `<div class="confirm-box">
+      <p>${escapeHtml(message)}</p>
+      <div class="confirm-btns">
+        <button class="confirm-cancel">Cancel</button>
+        <button class="confirm-ok">OK</button>
+      </div>
+    </div>`;
+    overlay.querySelector('.confirm-cancel').onclick = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector('.confirm-ok').onclick = () => { overlay.remove(); resolve(true); };
+    overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); resolve(false); } };
+    document.body.appendChild(overlay);
+    overlay.querySelector('.confirm-ok').focus();
+  });
 }
 
 function escapeHtml(str) {
@@ -3285,17 +3803,26 @@ function renderUserMenu() {
     ? `<img src="${currentUser.picture_url}" alt="" />`
     : initials;
 
-  const modeIcons = { dark: '&#9789;', day: '&#9788;', night: '&#9733;' };
-  const modeIcon = modeIcons[currentUser.dark_mode] || modeIcons.dark;
-
   container.innerHTML = `
-    <button class="darkmode-toggle" onclick="cycleDarkMode()" title="Toggle dark mode">${modeIcon}</button>
+    <button class="header-link" onclick="openInvite()" title="Invite friends to Baretraks">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Invite
+    </button>
+    <button class="header-link" onclick="openPlaylistsOverlay()" title="My Playlists">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      My Playlists
+    </button>
+    <button class="header-link" onclick="openSettings()" title="Settings">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </button>
     <div class="user-menu" id="user-menu">
       <div class="user-avatar" onclick="toggleUserMenu()">${avatar}</div>
       <div class="user-dropdown" id="user-dropdown">
         <div class="user-dropdown-header">${escapeHtml(currentUser.name || currentUser.email)}</div>
         <div class="user-dropdown-divider"></div>
-        <button class="user-dropdown-item" onclick="openSettings()">Settings</button>
+        <button class="user-dropdown-item" onclick="openProfile()">Profile</button>
+        <button class="user-dropdown-item" onclick="openPlaylistsOverlay()">Playlists</button>
         ${currentUser.role === 'admin' ? '<button class="user-dropdown-item" onclick="openAdminPanel()">Admin Panel</button>' : ''}
         <div class="user-dropdown-divider"></div>
         <button class="user-dropdown-item" onclick="logout()">Sign Out</button>
@@ -3350,6 +3877,39 @@ async function logout() {
   window.location.href = '/login';
 }
 
+function openProfile() {
+  document.getElementById('profile-overlay').classList.remove('hidden');
+  document.getElementById('user-dropdown').classList.remove('open');
+  renderProfileInfo();
+}
+
+function closeProfile() {
+  document.getElementById('profile-overlay').classList.add('hidden');
+}
+
+function renderProfileInfo() {
+  const el = document.getElementById('profile-info');
+  if (!currentUser || !el) return;
+  const initials = (currentUser.name || currentUser.email || '?')
+    .split(/[\s@]/).filter(Boolean).slice(0,2).map(s=>s[0].toUpperCase()).join('');
+  const avatar = currentUser.picture_url
+    ? `<img src="${currentUser.picture_url}" style="width:64px;height:64px;border-radius:50%;object-fit:cover;" />`
+    : `<div style="width:64px;height:64px;border-radius:50%;background:var(--border-accent);color:var(--text-bright);display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:700;">${initials}</div>`;
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+      ${avatar}
+      <div>
+        <div style="font-size:1.1rem;font-weight:600;color:var(--text-bright);">${escapeHtml(currentUser.name || '')}</div>
+        <div style="font-size:0.85rem;color:var(--text-dim);">${escapeHtml(currentUser.email || '')}</div>
+        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;text-transform:uppercase;">${currentUser.role || 'user'}</div>
+      </div>
+    </div>
+    <div style="font-size:0.8rem;color:var(--text-dim);">
+      Joined ${currentUser.created_at ? new Date(currentUser.created_at).toLocaleDateString() : 'N/A'}
+    </div>
+  `;
+}
+
 function openSettings() {
   document.getElementById('settings-overlay').classList.remove('hidden');
   document.getElementById('user-dropdown').classList.remove('open');
@@ -3369,7 +3929,7 @@ function renderSettingsButtons() {
   const modes = [
     { id: 'dark', label: 'Dark', icon: '&#9789;' },
     { id: 'day', label: 'Day', icon: '&#9788;' },
-    { id: 'night', label: 'Night', icon: '&#9733;' },
+    { id: 'night', label: 'Night', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l6 6"/><circle cx="12" cy="4" r="2.5"/><line x1="10" y1="10" x2="10" y2="20"/><line x1="6" y1="20" x2="14" y2="20"/></svg>' },
   ];
 
   document.getElementById('settings-theme-btns').innerHTML = themes.map(t =>
@@ -3490,6 +4050,560 @@ async function loadAdminFeedback() {
   } catch (e) { container.innerHTML = '<p style="color:var(--error);">Failed to load feedback.</p>'; }
 }
 
+// ---- Playlists ----
+
+let userPlaylists = [];
+let activePlaylistFilter = null;
+let _viewingPlaylistId = null; // which playlist is open in detail view
+let _playlistQueue = [];       // ordered job IDs for playback
+let _playlistQueueIdx = -1;    // current index in queue
+let _playlistQueuePlId = null; // playlist ID of current queue
+
+async function loadPlaylists() {
+  if (!currentUser) return;
+  try {
+    const resp = await fetch('/api/playlists');
+    const data = await resp.json();
+    userPlaylists = data.playlists || [];
+  } catch (e) { userPlaylists = []; }
+}
+
+function getPlaylistJobIds() {
+  if (activePlaylistFilter === null) return null;
+  const pl = userPlaylists.find(p => String(p.id) === String(activePlaylistFilter));
+  if (!pl || !pl.items) return new Set();
+  return new Set(pl.items.map(i => i.job_id));
+}
+
+// --- Playlists Overlay ---
+
+function openPlaylistsOverlay() {
+  document.getElementById('playlists-overlay').classList.remove('hidden');
+  document.getElementById('user-dropdown').classList.remove('open');
+  showPlaylistListView();
+}
+
+function closePlaylists() {
+  document.getElementById('playlists-overlay').classList.add('hidden');
+}
+
+function showPlaylistListView() {
+  _viewingPlaylistId = null;
+  document.getElementById('playlists-list-view').style.display = '';
+  document.getElementById('playlists-detail-view').style.display = 'none';
+  renderPlaylistsOverlayList();
+}
+
+function renderPlaylistsOverlayList() {
+  const container = document.getElementById('playlists-overlay-list');
+  if (userPlaylists.length === 0) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;text-align:center;padding:20px 0;">No playlists yet. Create one above!</div>';
+    return;
+  }
+  container.innerHTML = userPlaylists.map(pl => `
+    <div class="playlists-list-item" onclick="openPlaylistDetail('${pl.id}')">
+      <div>
+        <div class="pl-name">${escapeHtml(pl.name)}</div>
+        <div class="pl-count">${pl.item_count} song${pl.item_count !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="pl-actions">
+        <button class="pl-action-btn" onclick="event.stopPropagation(); deletePlaylistFromOverlay('${pl.id}')" title="Delete">&times;</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function createPlaylistFromOverlay() {
+  const input = document.getElementById('playlist-overlay-input');
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    const resp = await fetch('/api/playlists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(err.detail || 'Failed to create playlist');
+      return;
+    }
+    input.value = '';
+    await loadPlaylists();
+    renderPlaylistsOverlayList();
+  } catch (e) {
+    alert('Failed to create playlist: ' + e.message);
+  }
+}
+
+async function deletePlaylistFromOverlay(id) {
+  if (!await showConfirm('Delete this playlist?')) return;
+  await fetch(`/api/playlists/${id}`, { method: 'DELETE' });
+  if (activePlaylistFilter === String(id)) activePlaylistFilter = null;
+  if (_playlistQueuePlId === id) { _playlistQueue = []; _playlistQueueIdx = -1; _playlistQueuePlId = null; }
+  await loadPlaylists();
+  if (_viewingPlaylistId === id) showPlaylistListView();
+  else renderPlaylistsOverlayList();
+  renderLibrary();
+}
+
+// --- Playlist Detail View ---
+
+function _getLibItem(jobId) {
+  return (typeof libraryItems !== 'undefined' ? libraryItems : []).find(i => i.id === jobId);
+}
+
+function openPlaylistDetail(plId) {
+  _viewingPlaylistId = plId;
+  document.getElementById('playlists-list-view').style.display = 'none';
+  document.getElementById('playlists-detail-view').style.display = '';
+  renderPlaylistDetail();
+}
+
+function renderPlaylistDetail() {
+  const pl = userPlaylists.find(p => String(p.id) === String(_viewingPlaylistId));
+  if (!pl) { showPlaylistListView(); return; }
+
+  document.getElementById('pl-detail-title').textContent = pl.name;
+
+  const list = document.getElementById('pl-songs-list');
+  const items = pl.items || [];
+  if (items.length === 0) {
+    list.innerHTML = '<div class="pl-empty">No songs in this playlist yet.<br>Use the + button on library cards to add songs.</div>';
+    return;
+  }
+
+  list.innerHTML = items.map((item, idx) => {
+    const lib = _getLibItem(item.job_id);
+    const title = lib ? escapeHtml(lib.title) : item.job_id;
+    const channel = lib?.channel ? escapeHtml(lib.channel) : '';
+    const thumb = lib?.thumbnail ? `<img class="pl-song-thumb" src="${lib.thumbnail}" alt="" />` : '<div class="pl-song-thumb"></div>';
+    const isPlaying = _playlistQueuePlId === String(pl.id) && _playlistQueue[_playlistQueueIdx] === item.job_id;
+    return `<div class="pl-song-item${isPlaying ? ' now-playing' : ''}" draggable="true"
+                 data-idx="${idx}" data-job-id="${item.job_id}"
+                 ondragstart="plDragStart(event)" ondragover="plDragOver(event)"
+                 ondrop="plDrop(event)" ondragend="plDragEnd(event)"
+                 ondragenter="plDragEnter(event)" ondragleave="plDragLeave(event)">
+      <span class="pl-song-drag">&#9776;</span>
+      ${thumb}
+      <div class="pl-song-info">
+        <div class="title">${title}</div>
+        ${channel ? `<div class="channel">${channel}</div>` : ''}
+      </div>
+      <button class="pl-song-play" onclick="playFromPlaylist('${pl.id}', ${idx})" title="Play">&#9654;</button>
+      <button class="pl-song-remove" onclick="removeSongFromPlaylist('${pl.id}', '${item.job_id}')" title="Remove">&times;</button>
+    </div>`;
+  }).join('');
+}
+
+// --- Drag-to-reorder ---
+
+let _plDragIdx = null;
+
+function plDragStart(e) {
+  _plDragIdx = parseInt(e.currentTarget.dataset.idx);
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(_plDragIdx));
+}
+
+function plDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  // Highlight the closest song item
+  const item = e.target.closest('.pl-song-item');
+  if (item) {
+    document.querySelectorAll('.pl-song-item.drag-over').forEach(el => { if (el !== item) el.classList.remove('drag-over'); });
+    item.classList.add('drag-over');
+  }
+}
+
+function plDragEnter(e) {
+  e.preventDefault();
+}
+
+function plDragLeave(e) {
+  // Only remove if leaving the song item entirely (not entering a child)
+  const item = e.currentTarget;
+  const related = e.relatedTarget;
+  if (related && item.contains(related)) return;
+  item.classList.remove('drag-over');
+}
+
+function plDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.pl-song-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+async function plDrop(e) {
+  e.preventDefault();
+  document.querySelectorAll('.pl-song-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+  const dropTarget = e.target.closest('.pl-song-item');
+  if (!dropTarget) return;
+  const dropIdx = parseInt(dropTarget.dataset.idx);
+  if (_plDragIdx === null || _plDragIdx === dropIdx) return;
+
+  const pl = userPlaylists.find(p => String(p.id) === String(_viewingPlaylistId));
+  if (!pl || !pl.items) return;
+
+  const items = [...pl.items];
+  const [moved] = items.splice(_plDragIdx, 1);
+  items.splice(dropIdx, 0, moved);
+
+  const job_ids = items.map(i => i.job_id);
+  await fetch(`/api/playlists/${pl.id}/reorder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_ids }),
+  });
+  await loadPlaylists();
+  renderPlaylistDetail();
+  _plDragIdx = null;
+}
+
+async function removeSongFromPlaylist(plId, jobId) {
+  await fetch(`/api/playlists/${plId}/items/${jobId}`, { method: 'DELETE' });
+  await loadPlaylists();
+  renderPlaylistDetail();
+  renderLibrary();
+}
+
+// --- Playback: Play All, Shuffle, auto-advance ---
+
+function playAllPlaylist() {
+  const pl = userPlaylists.find(p => String(p.id) === String(_viewingPlaylistId));
+  if (!pl || !pl.items || pl.items.length === 0) return;
+  _playlistQueue = pl.items.map(i => i.job_id);
+  _playlistQueueIdx = 0;
+  _playlistQueuePlId = String(pl.id);
+  _playFromQueue();
+}
+
+function shufflePlaylist() {
+  const pl = userPlaylists.find(p => String(p.id) === String(_viewingPlaylistId));
+  if (!pl || !pl.items || pl.items.length === 0) return;
+  const ids = pl.items.map(i => i.job_id);
+  // Fisher-Yates shuffle
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  _playlistQueue = ids;
+  _playlistQueueIdx = 0;
+  _playlistQueuePlId = String(pl.id);
+  _playFromQueue();
+}
+
+function _playFromQueue() {
+  if (_playlistQueueIdx < 0 || _playlistQueueIdx >= _playlistQueue.length) return;
+  const jobId = _playlistQueue[_playlistQueueIdx];
+  closePlaylists();
+  showPlayerForJob(jobId);
+  // Update detail view if reopened
+  if (_viewingPlaylistId) renderPlaylistDetail();
+}
+
+function playFromPlaylist(plId, idx) {
+  const pl = userPlaylists.find(p => String(p.id) === String(plId));
+  if (!pl || !pl.items) return;
+  _playlistQueue = pl.items.map(i => i.job_id);
+  _playlistQueueIdx = idx;
+  _playlistQueuePlId = String(plId);
+  _playFromQueue();
+}
+
+function playlistNext() {
+  if (_playlistQueueIdx < _playlistQueue.length - 1) {
+    _playlistQueueIdx++;
+    _playFromQueue();
+  }
+}
+
+function playlistPrev() {
+  if (_playlistQueueIdx > 0) {
+    _playlistQueueIdx--;
+    _playFromQueue();
+  }
+}
+
+function _onPlayerEnded() {
+  // Auto-advance to next song in playlist queue
+  if (_playlistQueue.length > 0 && _playlistQueueIdx < _playlistQueue.length - 1) {
+    _playlistQueueIdx++;
+    _playFromQueue();
+  }
+}
+
+// --- Library "+" dropdown (add to playlist) ---
+
+let _activePlaylistDd = null;
+
+function _buildPlaylistDropdownHtml(jobId) {
+  const items = userPlaylists.map(pl => {
+    const inPlaylist = pl.items && pl.items.some(i => i.job_id === jobId);
+    return `<button class="playlist-dropdown-item" onclick="event.stopPropagation(); togglePlaylistItem('${pl.id}', '${jobId}', ${inPlaylist})">
+      ${escapeHtml(pl.name)} ${inPlaylist ? '<span class="checkmark">&#10003;</span>' : ''}
+    </button>`;
+  }).join('');
+
+  return `${items || '<div style="padding:8px 12px;font-size:0.75rem;color:var(--text-muted);">No playlists yet</div>'}
+    <div class="playlist-dropdown-create">
+      <input type="text" placeholder="New playlist..." id="pl-dd-input-${jobId}" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter'){event.stopPropagation();createAndAddToPlaylist('${jobId}')}" />
+      <button onclick="event.stopPropagation(); createAndAddToPlaylist('${jobId}')">+</button>
+    </div>`;
+}
+
+function closePlaylistDropdown() {
+  if (_activePlaylistDd) {
+    _activePlaylistDd.remove();
+    _activePlaylistDd = null;
+  }
+}
+
+function togglePlaylistDropdown(jobId, event) {
+  event.stopPropagation();
+  if (_activePlaylistDd && _activePlaylistDd.dataset.jobId === jobId) {
+    closePlaylistDropdown();
+    return;
+  }
+  closePlaylistDropdown();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  const dd = document.createElement('div');
+  dd.className = 'playlist-dropdown';
+  dd.dataset.jobId = jobId;
+  dd.innerHTML = _buildPlaylistDropdownHtml(jobId);
+  dd.onclick = (e) => e.stopPropagation();
+
+  dd.style.top = (rect.bottom + 4) + 'px';
+  dd.style.left = rect.left + 'px';
+
+  document.body.appendChild(dd);
+  _activePlaylistDd = dd;
+
+  requestAnimationFrame(() => {
+    const ddRect = dd.getBoundingClientRect();
+    if (ddRect.right > window.innerWidth - 8) {
+      dd.style.left = Math.max(8, window.innerWidth - ddRect.width - 8) + 'px';
+    }
+    if (ddRect.bottom > window.innerHeight - 8) {
+      dd.style.top = (rect.top - ddRect.height - 4) + 'px';
+    }
+  });
+}
+
+function _refreshPlaylistDropdown(jobId) {
+  if (_activePlaylistDd && _activePlaylistDd.dataset.jobId === jobId) {
+    _activePlaylistDd.innerHTML = _buildPlaylistDropdownHtml(jobId);
+  }
+}
+
+async function togglePlaylistItem(playlistId, jobId, isIn) {
+  if (isIn) {
+    await fetch(`/api/playlists/${playlistId}/items/${jobId}`, { method: 'DELETE' });
+  } else {
+    await fetch(`/api/playlists/${playlistId}/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId }),
+    });
+  }
+  await loadPlaylists();
+  _refreshPlaylistDropdown(jobId);
+}
+
+async function createAndAddToPlaylist(jobId) {
+  const input = document.getElementById(`pl-dd-input-${jobId}`);
+  const name = input.value.trim();
+  if (!name) return;
+  const resp = await fetch('/api/playlists', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const data = await resp.json();
+  if (data.playlist) {
+    await fetch(`/api/playlists/${data.playlist.id}/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId }),
+    });
+  }
+  await loadPlaylists();
+  _refreshPlaylistDropdown(jobId);
+}
+
+document.addEventListener('click', () => {
+  closePlaylistDropdown();
+});
+
+
+// ---- Comments ----
+
+let currentPlayerJobId = null;
+
+async function loadComments(jobId) {
+  currentPlayerJobId = jobId;
+  const list = document.getElementById('comments-list');
+  const inputRow = document.getElementById('comment-input-row');
+  if (currentUser) inputRow.style.display = 'flex';
+  else inputRow.style.display = 'none';
+
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}/comments`);
+    const data = await resp.json();
+    const comments = data.comments || [];
+    if (comments.length === 0) {
+      list.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;">No comments yet. Be the first!</div>';
+      return;
+    }
+    list.innerHTML = comments.map(c => {
+      const initials = (c.user_name || '?').split(/\s/).filter(Boolean).slice(0,2).map(s=>s[0].toUpperCase()).join('');
+      const avatar = c.user_picture
+        ? `<img src="${escapeHtml(c.user_picture)}" alt="" />`
+        : initials;
+      const timeAgo = formatTimeAgo(c.created_at);
+      const canDelete = currentUser && (String(currentUser.id) === c.user_id || currentUser.role === 'admin');
+      return `<div class="comment-item">
+        <div class="comment-avatar">${avatar}</div>
+        <div class="comment-body">
+          <div class="comment-meta">
+            <span class="name">${escapeHtml(c.user_name || 'Anonymous')}</span>
+            <span>${timeAgo}</span>
+          </div>
+          <div class="comment-text">${escapeHtml(c.text)}</div>
+        </div>
+        ${canDelete ? `<button class="comment-delete" onclick="deleteComment('${c.id}')" title="Delete">&times;</button>` : ''}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;">Failed to load comments.</div>';
+  }
+}
+
+function formatTimeAgo(isoStr) {
+  if (!isoStr) return '';
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return days + 'd ago';
+  return new Date(isoStr).toLocaleDateString();
+}
+
+async function postComment() {
+  if (!currentUser) { window.location.href = '/login'; return; }
+  const input = document.getElementById('comment-input');
+  const text = input.value.trim();
+  if (!text || !currentPlayerJobId) return;
+  try {
+    const resp = await fetch(`/api/jobs/${currentPlayerJobId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!resp.ok) return;
+    input.value = '';
+    await loadComments(currentPlayerJobId);
+  } catch (e) {}
+}
+
+async function deleteComment(commentId) {
+  await fetch(`/api/comments/${commentId}`, { method: 'DELETE' });
+  if (currentPlayerJobId) await loadComments(currentPlayerJobId);
+}
+
+
+// ---- Invite Friends ----
+
+let inviteEmails = [];
+
+function openInvite() {
+  inviteEmails = [];
+  renderInviteTags();
+  document.getElementById('invite-email-input').value = '';
+  document.getElementById('invite-status').style.display = 'none';
+  document.getElementById('invite-overlay').classList.remove('hidden');
+  document.getElementById('user-dropdown').classList.remove('open');
+  loadSentInvitations();
+}
+
+function closeInvite() {
+  document.getElementById('invite-overlay').classList.add('hidden');
+}
+
+function addInviteEmail() {
+  const input = document.getElementById('invite-email-input');
+  const email = input.value.trim().toLowerCase();
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+  if (inviteEmails.includes(email)) return;
+  inviteEmails.push(email);
+  input.value = '';
+  renderInviteTags();
+}
+
+function removeInviteEmail(email) {
+  inviteEmails = inviteEmails.filter(e => e !== email);
+  renderInviteTags();
+}
+
+function renderInviteTags() {
+  const container = document.getElementById('invite-tags');
+  container.innerHTML = inviteEmails.map(e =>
+    `<span class="invite-tag">${escapeHtml(e)} <button class="remove-invite" onclick="removeInviteEmail('${e}')">&times;</button></span>`
+  ).join('');
+  document.getElementById('invite-send-btn').style.display = inviteEmails.length > 0 ? 'block' : 'none';
+}
+
+async function sendInvitations() {
+  if (inviteEmails.length === 0) return;
+  const btn = document.getElementById('invite-send-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  try {
+    const resp = await fetch('/api/invitations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: inviteEmails }),
+    });
+    const data = await resp.json();
+    const statusEl = document.getElementById('invite-status');
+    statusEl.textContent = `${data.count} invitation${data.count !== 1 ? 's' : ''} sent!`;
+    statusEl.style.display = 'block';
+    inviteEmails = [];
+    renderInviteTags();
+    loadSentInvitations();
+  } catch (e) {}
+  btn.disabled = false;
+  btn.textContent = 'Send Invitations';
+}
+
+async function loadSentInvitations() {
+  const container = document.getElementById('invite-sent-list');
+  try {
+    const resp = await fetch('/api/invitations');
+    const data = await resp.json();
+    const invites = data.invitations || [];
+    if (invites.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = `
+      <div style="font-size:0.75rem;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Previously Sent</div>
+      ${invites.map(i => `
+        <div class="invite-sent-item">
+          <span class="email">${escapeHtml(i.email)}</span>
+          <span class="status ${i.status}">${i.status}</span>
+        </div>
+      `).join('')}
+    `;
+  } catch (e) { container.innerHTML = ''; }
+}
+
+
 async function init() {
   // Check for shared watch link — allow without login
   const isSharedLink = window.location.hash.match(/^#\/watch\/(.+)$/);
@@ -3510,7 +4624,10 @@ async function init() {
   }
 
   // Load both panes on startup (only if authenticated)
-  if (currentUser) loadLibrary();
+  if (currentUser) {
+    await loadPlaylists();
+    loadLibrary();
+  }
 
   // Load queue state
   try {
