@@ -41,6 +41,7 @@ class User(Base):
             "theme": self.theme,
             "dark_mode": self.dark_mode,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_login": self.last_login.isoformat() if self.last_login else None,
         }
 
 

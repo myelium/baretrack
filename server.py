@@ -247,7 +247,8 @@ LANG_FULL_NAMES = {
     "af": "Afrikaans", "sq": "Albanian", "am": "Amharic", "ar": "Arabic",
     "hy": "Armenian", "as": "Assamese", "az": "Azerbaijani", "ba": "Bashkir",
     "eu": "Basque", "be": "Belarusian", "bn": "Bengali", "bs": "Bosnian",
-    "br": "Breton", "bg": "Bulgarian", "my": "Burmese", "yue": "Cantonese",
+    "br": "Breton", "bg": "Bulgarian", "my": "Burmese",
+    "zh-Hans": "Chinese (Simplified)", "zh-Hant": "Chinese (Traditional)",
     "ca": "Catalan", "hr": "Croatian", "cs": "Czech", "da": "Danish",
     "nl": "Dutch", "en": "English", "et": "Estonian", "fo": "Faroese",
     "fi": "Finnish", "fr": "French", "gl": "Galician", "ka": "Georgian",
@@ -258,7 +259,7 @@ LANG_FULL_NAMES = {
     "km": "Khmer", "ko": "Korean", "lo": "Lao", "la": "Latin",
     "lv": "Latvian", "ln": "Lingala", "lt": "Lithuanian", "lb": "Luxembourgish",
     "mk": "Macedonian", "mg": "Malagasy", "ms": "Malay", "ml": "Malayalam",
-    "mt": "Maltese", "zh": "Mandarin Chinese", "mi": "Maori", "mr": "Marathi",
+    "mt": "Maltese", "mi": "Maori", "mr": "Marathi",
     "mn": "Mongolian", "ne": "Nepali", "no": "Norwegian", "nn": "Norwegian Nynorsk",
     "oc": "Occitan", "ps": "Pashto", "fa": "Persian", "pl": "Polish",
     "pt": "Portuguese", "pa": "Punjabi", "ro": "Romanian", "ru": "Russian",
@@ -1054,6 +1055,45 @@ def update_settings(req: SettingsRequest, user: User = Depends(get_current_user)
     return {"user": user.to_dict()}
 
 
+class ProfileUpdateRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    current_password: str | None = None
+    new_password: str | None = None
+
+
+@app.put("/api/auth/profile")
+def update_profile(req: ProfileUpdateRequest, user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Update user profile (name, email, password)."""
+    if req.name is not None:
+        name = req.name.strip()
+        if not name:
+            raise HTTPException(400, "Name is required")
+        user.name = name
+
+    if req.email is not None:
+        email = req.email.strip().lower()
+        if not email:
+            raise HTTPException(400, "Email is required")
+        existing = db.query(User).filter(User.email == email, User.id != user.id).first()
+        if existing:
+            raise HTTPException(409, "Email already in use")
+        user.email = email
+
+    if req.new_password:
+        if not req.new_password or len(req.new_password) < 6:
+            raise HTTPException(400, "Password must be at least 6 characters")
+        # If user has a password, require current password
+        if user.password_hash:
+            if not req.current_password or not verify_password(req.current_password, user.password_hash):
+                raise HTTPException(403, "Current password is incorrect")
+        user.password_hash = hash_password(req.new_password)
+
+    db.commit()
+    return {"user": user.to_dict()}
+
+
 # ---------------------------------------------------------------------------
 # Production API
 # ---------------------------------------------------------------------------
@@ -1447,6 +1487,12 @@ def get_library(user: User | None = Depends(get_optional_user),
         for v in db.query(Vote).filter(Vote.user_id == user.id).all():
             user_votes[v.job_id] = v.value
 
+    # Preload comment counts
+    comment_rows = db.query(
+        Comment.job_id, func.count()
+    ).group_by(Comment.job_id).all()
+    comment_counts: dict[str, int] = {job_id: count for job_id, count in comment_rows}
+
     for d in JOBS_DIR.iterdir():
         if not d.is_dir():
             continue
@@ -1477,6 +1523,7 @@ def get_library(user: User | None = Depends(get_optional_user),
             "upvotes": votes["upvotes"],
             "downvotes": votes["downvotes"],
             "user_vote": user_votes.get(job_id, 0),
+            "comment_count": comment_counts.get(job_id, 0),
         })
     items.sort(key=lambda x: x.get("finished_at") or "", reverse=True)
     return {"items": items}
@@ -1568,7 +1615,7 @@ def get_lyrics(job_id: str):
 def get_subtitles_lang(job_id: str, lang_code: str):
     """Serve per-language SRT file."""
     # Sanitize lang_code to prevent path traversal
-    if not re.match(r"^[a-z]{2,3}$", lang_code):
+    if not re.match(r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$", lang_code):
         raise HTTPException(400, "Invalid language code")
     path = JOBS_DIR / job_id / f"subtitles_{lang_code}.srt"
     if not path.exists():
@@ -1624,7 +1671,7 @@ def delete_job(job_id: str):
 def download_file(job_id: str, filename: str):
     # Allow specific files + subtitles_*.srt pattern
     static_allowed = {"karaoke.mp4", "instrumental.mp3", "vocals.mp3", "subtitles.srt"}
-    is_subtitle = bool(re.match(r"^subtitles_[a-z]{2,3}\.srt$", filename))
+    is_subtitle = bool(re.match(r"^subtitles_[a-z]{2,3}(-[A-Za-z]{2,4})?\.srt$", filename))
     if filename not in static_allowed and not is_subtitle:
         raise HTTPException(400, "Invalid file")
     path = JOBS_DIR / job_id / filename
@@ -1769,6 +1816,116 @@ def admin_update_feedback(feedback_id: str, status: str,
     fb.status = status
     db.commit()
     return {"feedback": fb.to_dict()}
+
+
+@app.delete("/api/admin/feedback/{feedback_id}")
+def admin_delete_feedback(feedback_id: str, admin: User = Depends(require_admin),
+                           db: Session = Depends(get_db)):
+    fb = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not fb:
+        raise HTTPException(404, "Feedback not found")
+    # Delete screenshot file if exists
+    if fb.screenshot_path:
+        p = Path(fb.screenshot_path)
+        if p.exists():
+            p.unlink(missing_ok=True)
+    db.delete(fb)
+    db.commit()
+    return {"deleted": True}
+
+
+@app.get("/api/admin/feedback/{feedback_id}/screenshot")
+def admin_get_screenshot(feedback_id: str, admin: User = Depends(require_admin),
+                          db: Session = Depends(get_db)):
+    fb = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not fb or not fb.screenshot_path:
+        raise HTTPException(404, "Screenshot not found")
+    p = Path(fb.screenshot_path)
+    if not p.exists():
+        raise HTTPException(404, "Screenshot file missing")
+    return FileResponse(p)
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: str, admin: User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    if str(admin.id) == user_id:
+        raise HTTPException(400, "Cannot delete yourself")
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "User not found")
+    db.delete(target)
+    db.commit()
+    return {"deleted": True}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from sqlalchemy import func
+
+    user_count = db.query(func.count(User.id)).scalar()
+    comment_count = db.query(func.count(Comment.id)).scalar()
+    invitation_count = db.query(func.count(Invitation.id)).scalar()
+    feedback_new = db.query(func.count(Feedback.id)).filter(Feedback.status == "new").scalar()
+
+    # Library stats from disk
+    total_songs = 0
+    total_size_bytes = 0
+    if JOBS_DIR.exists():
+        for d in JOBS_DIR.iterdir():
+            if not d.is_dir():
+                continue
+            job_json = d / "job.json"
+            if not job_json.exists():
+                continue
+            try:
+                data = json.loads(job_json.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            if data.get("status") == "done":
+                total_songs += 1
+                for f in d.iterdir():
+                    if f.is_file():
+                        total_size_bytes += f.stat().st_size
+
+    # Queue status
+    with _lock:
+        queue_len = len(_queue)
+        running = _job is not None and _job.get("status") == "running"
+
+    return {
+        "users": user_count,
+        "songs": total_songs,
+        "storage_mb": round(total_size_bytes / (1024 * 1024), 1),
+        "comments": comment_count,
+        "invitations": invitation_count,
+        "feedback_new": feedback_new,
+        "queue_length": queue_len,
+        "processing": running,
+    }
+
+
+@app.get("/api/admin/comments")
+def admin_list_comments(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    comments = db.query(Comment).order_by(Comment.created_at.desc()).all()
+    return {"comments": [c.to_dict() for c in comments]}
+
+
+@app.delete("/api/admin/comments/{comment_id}")
+def admin_delete_comment(comment_id: str, admin: User = Depends(require_admin),
+                          db: Session = Depends(get_db)):
+    comment = db.query(Comment).filter(Comment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(404, "Comment not found")
+    db.delete(comment)
+    db.commit()
+    return {"deleted": True}
+
+
+@app.get("/api/admin/invitations")
+def admin_list_invitations(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    invites = db.query(Invitation).order_by(Invitation.created_at.desc()).all()
+    return {"invitations": [i.to_dict() for i in invites]}
 
 
 # ---------------------------------------------------------------------------

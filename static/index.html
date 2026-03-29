@@ -216,18 +216,22 @@
   }
   .user-dropdown.open { display: block; }
   .user-dropdown-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     width: 100%;
     padding: 8px 16px;
     background: none;
     border: none;
     color: #c0b090;
     font-size: 0.85rem;
+    font-weight: 400;
     font-family: inherit;
     text-align: left;
     cursor: pointer;
     transition: background 0.2s;
   }
+  .user-dropdown-item svg { flex-shrink: 0; }
   .user-dropdown-item:hover { background: #2a2520; }
   .user-dropdown-divider { height: 1px; background: #3a3226; margin: 4px 0; }
   .user-dropdown-header {
@@ -367,10 +371,12 @@
   .mode-row select:focus { border-color: #b48c3c; }
 
   .lang-picker {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 8px;
-    margin-left: 4px;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    padding: 0 4px;
   }
   .lang-picker select {
     padding: 6px 10px;
@@ -383,10 +389,8 @@
     outline: none;
     cursor: pointer;
   }
-  .lang-chips {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
+  #lang-chips {
+    display: contents;
   }
   .lang-chip {
     display: inline-flex;
@@ -637,7 +641,7 @@
   }
   .tab {
     flex: 1;
-    padding: 10px;
+    padding: 12px 10px;
     text-align: center;
     background: #1a1612;
     border: 1px solid #3a3226;
@@ -645,8 +649,11 @@
     cursor: pointer;
     color: #8a7e6b;
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 1.35rem;
     transition: background 0.2s, color 0.2s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .tab.active { background: #231e18; color: #e8d5a3; border-bottom-color: #231e18; }
   .tab:hover { color: #d4c8b0; }
@@ -1186,9 +1193,21 @@
 
   /* --- Tab download link --- */
   .tab-download {
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-top: 12px;
   }
+  .tab-download-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .tab-download-right .player-share-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 4px; display: flex; align-items: center; transition: color 0.2s;
+  }
+  .tab-download-right .player-share-btn:hover { color: var(--accent); }
   .btn-download-sm {
     display: inline-flex;
     align-items: center;
@@ -1305,7 +1324,7 @@
     min-width: 0;
   }
   .player-comments-side {
-    flex: 0 0 340px;
+    flex: 0 0 380px;
     display: flex;
     flex-direction: column;
     border: 1px solid var(--border);
@@ -1434,6 +1453,13 @@
     margin-left: 6px;
     vertical-align: middle;
   }
+  .comment-count-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    margin-left: 8px; color: var(--text-muted); font-size: 0.7rem;
+    vertical-align: middle; cursor: pointer; transition: color 0.2s;
+  }
+  .comment-count-badge:hover { color: var(--accent); }
+  .comment-count-badge svg { vertical-align: middle; }
   .vote-btn-sm {
     background: none;
     border: none;
@@ -1512,6 +1538,26 @@
   .queue-item.processing {
     border-color: #b48c3c;
     background: #231e18;
+    animation: ember-glow 5s linear infinite;
+  }
+  @keyframes ember-glow {
+    0%   { opacity: 0.85; }
+    50%  { opacity: 1; }
+    100% { opacity: 0.85; }
+  }
+  .queue-item.processing::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 10px;
+    pointer-events: none;
+    box-shadow: 0 0 20px rgba(220,80,20,0.4), 0 0 50px rgba(210,70,10,0.15), inset 0 0 25px rgba(220,80,20,0.08);
+    animation: ember-after 5s linear infinite;
+  }
+  @keyframes ember-after {
+    0%   { opacity: 0.2; }
+    50%  { opacity: 1; }
+    100% { opacity: 0.2; }
   }
   .queue-item.paused {
     border-color: #8a7e6b;
@@ -1528,11 +1574,12 @@
   .queue-drag-handle {
     cursor: grab;
     color: #4a3f35;
-    font-size: 1.1rem;
+    font-size: 2.2rem;
     user-select: none;
     flex-shrink: 0;
-    width: 16px;
+    width: 44px;
     text-align: center;
+    line-height: 1;
   }
   .queue-drag-handle:active { cursor: grabbing; }
 
@@ -1850,6 +1897,59 @@
   .invite-sent-item .status.pending { color: var(--text-muted); }
   .invite-sent-item .status.accepted { color: var(--success); }
 
+  /* --- Admin Panel --- */
+  .admin-tab {
+    padding: 8px 16px; background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); font-size: 0.8rem; font-weight: 500; font-family: inherit;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .admin-tab:hover { color: var(--text); }
+  .admin-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .admin-tab-content { max-height: 450px; overflow-y: auto; }
+  .admin-stat {
+    flex: 1; min-width: 100px; padding: 10px 14px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    text-align: center;
+  }
+  .admin-stat .val { font-size: 1.3rem; font-weight: 700; color: var(--text-bright); }
+  .admin-stat .label { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+  .admin-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-bottom: 1px solid var(--border-light); font-size: 0.82rem;
+  }
+  .admin-row:last-child { border-bottom: none; }
+  .admin-row .name { font-weight: 500; color: var(--text-bright); }
+  .admin-row .email { color: var(--text-dim); }
+  .admin-row .meta { font-size: 0.7rem; color: var(--text-muted); }
+  .admin-row .role-badge {
+    font-size: 0.65rem; font-weight: 600; text-transform: uppercase; padding: 2px 8px;
+    border-radius: 4px; letter-spacing: 0.03em;
+  }
+  .admin-row .role-badge.admin { color: var(--accent); background: rgba(180,140,60,0.15); }
+  .admin-row .role-badge.user { color: var(--text-muted); background: var(--bg-input); }
+  .admin-row-actions { display: flex; gap: 4px; margin-left: auto; flex-shrink: 0; }
+  .admin-btn {
+    padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg-input); color: var(--text-dim); font-size: 0.7rem;
+    font-family: inherit; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+  }
+  .admin-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .admin-btn.danger:hover { border-color: var(--error); color: var(--error); }
+  .admin-section {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden;
+  }
+  .admin-filter-row {
+    display: flex; gap: 6px; margin-bottom: 10px;
+  }
+  .admin-filter-btn {
+    padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: none; color: var(--text-dim); font-size: 0.72rem; font-family: inherit;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .admin-filter-btn:hover { border-color: var(--text-dim); }
+  .admin-filter-btn.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
   /* --- Custom confirm dialog --- */
   .confirm-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
@@ -1903,8 +2003,9 @@
       <div class="mode-row">
         <label><input type="checkbox" id="mode-karaoke" checked onchange="onModeChange()"> Karaoke</label>
         <label><input type="checkbox" id="mode-subtitled" onchange="onModeChange()"> Subtitles</label>
-        <div class="lang-picker" id="lang-picker" style="display:none;">
-          <div class="lang-chips" id="lang-chips"></div>
+      </div>
+      <div class="lang-picker" id="lang-picker" style="display:none;">
+          <span id="lang-chips"></span>
           <select id="lang-add-select" onchange="addLanguage(this.value); this.value='';" title="Add subtitle language">
           <option value="">+ Add language</option>
           <option value="af">Afrikaans</option><option value="sq">Albanian</option><option value="am">Amharic</option>
@@ -1912,7 +2013,7 @@
           <option value="az">Azerbaijani</option><option value="ba">Bashkir</option><option value="eu">Basque</option>
           <option value="be">Belarusian</option><option value="bn">Bengali</option><option value="bs">Bosnian</option>
           <option value="br">Breton</option><option value="bg">Bulgarian</option><option value="my">Burmese</option>
-          <option value="yue">Cantonese</option><option value="ca">Catalan</option><option value="hr">Croatian</option>
+          <option value="zh-Hans">Chinese (Simplified)</option><option value="zh-Hant">Chinese (Traditional)</option><option value="ca">Catalan</option><option value="hr">Croatian</option>
           <option value="cs">Czech</option><option value="da">Danish</option><option value="nl">Dutch</option>
           <option value="en">English</option><option value="et">Estonian</option><option value="fo">Faroese</option>
           <option value="fi">Finnish</option><option value="fr">French</option><option value="gl">Galician</option>
@@ -1926,7 +2027,7 @@
           <option value="lv">Latvian</option><option value="ln">Lingala</option><option value="lt">Lithuanian</option>
           <option value="lb">Luxembourgish</option><option value="mk">Macedonian</option><option value="mg">Malagasy</option>
           <option value="ms">Malay</option><option value="ml">Malayalam</option><option value="mt">Maltese</option>
-          <option value="zh">Mandarin Chinese</option><option value="mi">Maori</option><option value="mr">Marathi</option>
+          <option value="mi">Maori</option><option value="mr">Marathi</option>
           <option value="mn">Mongolian</option><option value="ne">Nepali</option><option value="no">Norwegian</option>
           <option value="nn">Norwegian Nynorsk</option><option value="oc">Occitan</option><option value="ps">Pashto</option>
           <option value="fa">Persian</option><option value="pl">Polish</option><option value="pt">Portuguese</option>
@@ -1943,7 +2044,6 @@
           <option value="yo">Yoruba</option>
           </select>
         </div>
-      </div>
     </div>
 
     <!-- Queue List -->
@@ -2004,12 +2104,30 @@
 
 <!-- Profile Overlay -->
 <div id="profile-overlay" class="player-overlay hidden" onclick="if(event.target===this)closeProfile()">
-  <div class="player-overlay-content" style="max-width:420px;position:relative;">
+  <div class="player-overlay-content" style="max-width:450px;position:relative;">
     <div class="player-overlay-actions">
       <button class="player-overlay-close" onclick="closeProfile()">&times;</button>
     </div>
     <h3 style="color:var(--text-bright);margin-bottom:20px;font-size:1.1rem;">Profile</h3>
-    <div id="profile-info"></div>
+    <div id="profile-avatar" style="display:flex;align-items:center;gap:14px;margin-bottom:20px;"></div>
+    <form id="profile-form" onsubmit="saveProfile(event)">
+      <div style="margin-bottom:14px;">
+        <label style="font-size:0.75rem;color:var(--text-dim);font-weight:600;display:block;margin-bottom:4px;">Name</label>
+        <input type="text" id="profile-name" required style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;box-sizing:border-box;" />
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="font-size:0.75rem;color:var(--text-dim);font-weight:600;display:block;margin-bottom:4px;">Email</label>
+        <input type="email" id="profile-email" required style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;box-sizing:border-box;" />
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:6px;margin-bottom:14px;">
+        <label style="font-size:0.75rem;color:var(--text-dim);font-weight:600;display:block;margin-bottom:4px;">Change Password</label>
+        <input type="password" id="profile-current-pw" placeholder="Current password" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;margin-bottom:8px;box-sizing:border-box;" />
+        <input type="password" id="profile-new-pw" placeholder="New password (min 6 chars)" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;box-sizing:border-box;" />
+      </div>
+      <div id="profile-message" style="font-size:0.8rem;margin-bottom:10px;display:none;"></div>
+      <button type="submit" class="btn-primary" id="profile-save-btn" style="width:100%;height:36px;">Save Changes</button>
+    </form>
+    <div style="margin-top:14px;font-size:0.75rem;color:var(--text-muted);" id="profile-meta"></div>
   </div>
 </div>
 
@@ -2035,19 +2153,28 @@
 
 <!-- Admin Overlay -->
 <div id="admin-overlay" class="player-overlay hidden" onclick="if(event.target===this)closeAdmin()">
-  <div class="player-overlay-content" style="max-width:700px;position:relative;">
+  <div class="player-overlay-content" style="max-width:800px;position:relative;">
     <div class="player-overlay-actions">
       <button class="player-overlay-close" onclick="closeAdmin()">&times;</button>
     </div>
-    <h3 style="color:var(--text-bright);margin-bottom:20px;">Admin Panel</h3>
-    <div style="margin-bottom:24px;">
-      <h4 style="color:var(--text-dim);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Users</h4>
-      <div id="admin-users" style="background:var(--bg-input);border:1px solid var(--border);border-radius:10px;max-height:300px;overflow-y:auto;"></div>
+    <h3 style="color:var(--text-bright);margin-bottom:16px;">Admin Panel</h3>
+
+    <!-- Stats Bar -->
+    <div id="admin-stats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;"></div>
+
+    <!-- Tabs -->
+    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0;">
+      <button class="admin-tab active" data-tab="users" onclick="switchAdminTab('users')">Users</button>
+      <button class="admin-tab" data-tab="feedback" onclick="switchAdminTab('feedback')">Feedback</button>
+      <button class="admin-tab" data-tab="comments" onclick="switchAdminTab('comments')">Comments</button>
+      <button class="admin-tab" data-tab="invitations" onclick="switchAdminTab('invitations')">Invitations</button>
     </div>
-    <div>
-      <h4 style="color:var(--text-dim);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Feedback & Bug Reports</h4>
-      <div id="admin-feedback" style="background:var(--bg-input);border:1px solid var(--border);border-radius:10px;max-height:300px;overflow-y:auto;"></div>
-    </div>
+
+    <!-- Tab Content -->
+    <div id="admin-tab-users" class="admin-tab-content"></div>
+    <div id="admin-tab-feedback" class="admin-tab-content" style="display:none;"></div>
+    <div id="admin-tab-comments" class="admin-tab-content" style="display:none;"></div>
+    <div id="admin-tab-invitations" class="admin-tab-content" style="display:none;"></div>
   </div>
 </div>
 
@@ -2055,12 +2182,9 @@
 <div id="player-overlay" class="player-overlay hidden" onclick="if(event.target===this)closePlayer()">
   <div class="player-overlay-content">
     <div class="player-overlay-actions">
-      <button class="player-overlay-share" id="btn-share" onclick="sharePlayer()" title="Copy link">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-      </button>
       <button class="player-overlay-close" onclick="closePlayer()">&times;</button>
     </div>
-    <div class="player-title" id="overlay-title"></div>
+    <div class="player-title" id="overlay-title" style="display:none;"></div>
     <div class="player-layout">
       <div class="player-main">
         <div class="tabs" id="overlay-tabs"></div>
@@ -2351,6 +2475,31 @@ function renderQueue() {
     return;
   }
 
+  // If only the processing item changed, update it in-place to preserve animations
+  const processingItem = productionQueue.find(q => q.status === 'processing');
+  if (processingItem) {
+    const existingEl = list.querySelector(`.queue-item[data-id="${processingItem.id}"]`);
+    if (existingEl && existingEl.classList.contains('processing') && list.children.length === productionQueue.length) {
+      // Update just the dynamic parts in-place
+      const totalSteps = getStepNamesForMode(processingItem.mode).length;
+      const stepNum = processingItem.step || 0;
+      const stepProg = processingItem.step_progress || 0;
+      const overallPct = totalSteps > 0 ? Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100) : 0;
+      const barPct = overallPct;
+      const langSuffix = processingItem.languages?.length ? ' · ' + processingItem.languages.map(c => LANG_NAMES_ALL[c] || c).join(', ') : '';
+      const modeLabel = processingItem.mode === 'both' ? 'Karaoke + Subtitles' + langSuffix : (processingItem.mode === 'subtitled' ? 'Subtitled' + langSuffix : 'Karaoke');
+      const statusLine = stepNum > 0 ? `${stepNum}/${totalSteps} ${processingItem.step_name}` : processingItem.step_name || modeLabel;
+
+      const pieEl = existingEl.querySelector('.queue-pie');
+      if (pieEl) { pieEl.style.setProperty('--pct', Math.max(overallPct, 2) + '%'); pieEl.querySelector('.queue-pie-pct').textContent = overallPct + '%'; }
+      const metaEl = existingEl.querySelector('.queue-item-meta');
+      if (metaEl) metaEl.innerHTML = statusLine + (processingItem.added_by ? ' &middot; ' + escapeHtml(processingItem.added_by) : '');
+      const fillEl = existingEl.querySelector('.queue-progress-fill');
+      if (fillEl) fillEl.style.width = Math.max(barPct, 2) + '%';
+      return;
+    }
+  }
+
   list.innerHTML = productionQueue.map((item, i) => {
     const isProcessing = item.status === 'processing';
     const isPaused = item.status === 'paused';
@@ -2384,9 +2533,11 @@ function renderQueue() {
       icon = '!';
     }
 
-    const dragHandle = isQueued
-      ? '<div class="queue-drag-handle" title="Drag to reorder">&#8801;</div>'
-      : '<div style="width:16px;"></div>';
+    // For queued items, put drag handle inside the icon slot so text aligns with processing items
+    if (isQueued && !icon) {
+      icon = '<span class="queue-drag-handle" title="Drag to reorder">&#8801;</span>';
+    }
+    const dragHandle = '';
 
     let progressBar = '';
     if (isProcessing) {
@@ -2489,7 +2640,7 @@ async function onQueueDrop(e) {
 
 // ---- Mode & Language Selection ----
 
-const LANG_NAMES_ALL = {af:'Afrikaans',sq:'Albanian',am:'Amharic',ar:'Arabic',hy:'Armenian',as:'Assamese',az:'Azerbaijani',ba:'Bashkir',eu:'Basque',be:'Belarusian',bn:'Bengali',bs:'Bosnian',br:'Breton',bg:'Bulgarian',my:'Burmese',yue:'Cantonese',ca:'Catalan',hr:'Croatian',cs:'Czech',da:'Danish',nl:'Dutch',en:'English',et:'Estonian',fo:'Faroese',fi:'Finnish',fr:'French',gl:'Galician',ka:'Georgian',de:'German',el:'Greek',gu:'Gujarati',ht:'Haitian',ha:'Hausa',haw:'Hawaiian',he:'Hebrew',hi:'Hindi',hu:'Hungarian',is:'Icelandic',id:'Indonesian',it:'Italian',ja:'Japanese',jw:'Javanese',kn:'Kannada',kk:'Kazakh',km:'Khmer',ko:'Korean',lo:'Lao',la:'Latin',lv:'Latvian',ln:'Lingala',lt:'Lithuanian',lb:'Luxembourgish',mk:'Macedonian',mg:'Malagasy',ms:'Malay',ml:'Malayalam',mt:'Maltese',zh:'Mandarin Chinese',mi:'Maori',mr:'Marathi',mn:'Mongolian',ne:'Nepali',no:'Norwegian',nn:'Norwegian Nynorsk',oc:'Occitan',ps:'Pashto',fa:'Persian',pl:'Polish',pt:'Portuguese',pa:'Punjabi',ro:'Romanian',ru:'Russian',sa:'Sanskrit',sr:'Serbian',sn:'Shona',sd:'Sindhi',si:'Sinhala',sk:'Slovak',sl:'Slovenian',so:'Somali',es:'Spanish',su:'Sundanese',sw:'Swahili',sv:'Swedish',tl:'Tagalog',tg:'Tajik',ta:'Tamil',tt:'Tatar',te:'Telugu',th:'Thai',bo:'Tibetan',tr:'Turkish',tk:'Turkmen',uk:'Ukrainian',ur:'Urdu',uz:'Uzbek',vi:'Vietnamese',cy:'Welsh',yi:'Yiddish',yo:'Yoruba'};
+const LANG_NAMES_ALL = {af:'Afrikaans',sq:'Albanian',am:'Amharic',ar:'Arabic',hy:'Armenian',as:'Assamese',az:'Azerbaijani',ba:'Bashkir',eu:'Basque',be:'Belarusian',bn:'Bengali',bs:'Bosnian',br:'Breton',bg:'Bulgarian',my:'Burmese','zh-Hans':'Chinese (Simplified)','zh-Hant':'Chinese (Traditional)',ca:'Catalan',hr:'Croatian',cs:'Czech',da:'Danish',nl:'Dutch',en:'English',et:'Estonian',fo:'Faroese',fi:'Finnish',fr:'French',gl:'Galician',ka:'Georgian',de:'German',el:'Greek',gu:'Gujarati',ht:'Haitian',ha:'Hausa',haw:'Hawaiian',he:'Hebrew',hi:'Hindi',hu:'Hungarian',is:'Icelandic',id:'Indonesian',it:'Italian',ja:'Japanese',jw:'Javanese',kn:'Kannada',kk:'Kazakh',km:'Khmer',ko:'Korean',lo:'Lao',la:'Latin',lv:'Latvian',ln:'Lingala',lt:'Lithuanian',lb:'Luxembourgish',mk:'Macedonian',mg:'Malagasy',ms:'Malay',ml:'Malayalam',mt:'Maltese',mi:'Maori',mr:'Marathi',mn:'Mongolian',ne:'Nepali',no:'Norwegian',nn:'Norwegian Nynorsk',oc:'Occitan',ps:'Pashto',fa:'Persian',pl:'Polish',pt:'Portuguese',pa:'Punjabi',ro:'Romanian',ru:'Russian',sa:'Sanskrit',sr:'Serbian',sn:'Shona',sd:'Sindhi',si:'Sinhala',sk:'Slovak',sl:'Slovenian',so:'Somali',es:'Spanish',su:'Sundanese',sw:'Swahili',sv:'Swedish',tl:'Tagalog',tg:'Tajik',ta:'Tamil',tt:'Tatar',te:'Telugu',th:'Thai',bo:'Tibetan',tr:'Turkish',tk:'Turkmen',uk:'Ukrainian',ur:'Urdu',uz:'Uzbek',vi:'Vietnamese',cy:'Welsh',yi:'Yiddish',yo:'Yoruba'};
 
 let selectedLanguages = [];
 const MAX_LANGUAGES = 3;
@@ -2504,7 +2655,7 @@ function getSelectedMode() {
 
 function onModeChange() {
   const s = document.getElementById('mode-subtitled').checked;
-  document.getElementById('lang-picker').style.display = s ? 'inline-flex' : 'none';
+  document.getElementById('lang-picker').style.display = s ? 'flex' : 'none';
 }
 
 function addLanguage(code) {
@@ -2913,11 +3064,6 @@ function renderSubtitledPlayer(jobId, youtubeUrl, languages) {
     ? `<button onclick="cycleSubtitleLang()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(74,63,47,0.6);background:rgba(26,22,18,0.85);color:#d4c8b0;font-size:0.8rem;font-family:inherit;cursor:pointer;" id="subtitle-lang-btn">${LANG_NAMES_ALL[languages[0]] || languages[0]}</button>`
     : (languages.length === 1 ? `<span class="toggle-label">${LANG_NAMES_ALL[languages[0]] || languages[0]}</span>` : '');
 
-  // Download links
-  const dlIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
-  const downloadLinks = languages.map(code =>
-    `<a class="btn-download-sm" href="/api/jobs/${jobId}/download/subtitles_${code}.srt">${dlIcon} ${LANG_NAMES_ALL[code] || code} SRT</a>`
-  ).join(' ');
 
   const area = _playerAreaEl();
   area.innerHTML = `
@@ -2936,7 +3082,15 @@ function renderSubtitledPlayer(jobId, youtubeUrl, languages) {
         </button>
       </div>
     </div>
-    ${downloadLinks ? `<div class="tab-download">${downloadLinks}</div>` : ''}`;
+    <div class="tab-download">
+        <div></div>
+        <div class="tab-download-right">
+          <span class="vote-controls" data-vote-id="${jobId}">${renderVoteControls(jobId, _getVoteData(jobId, 'up'), _getVoteData(jobId, 'down'), _getVoteData(jobId, 'user'))}</span>
+          <button class="player-share-btn" onclick="sharePlayer()" title="Copy link">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
+        </div>
+      </div>`;
 
   // Load first language SRT
   if (languages.length > 0) {
@@ -3141,9 +3295,6 @@ async function showPlayerForJob(jobId) {
   const item = libraryItems.find(i => i.id === jobId);
   titleEl.innerHTML = `
     <span>${escapeHtml(currentJob.title || (jobMode === 'subtitled' ? 'Subtitled Video' : (jobMode === 'both' ? 'Karaoke + Subtitles' : 'Karaoke')))}</span>
-    <span class="vote-controls" data-vote-id="${jobId}" style="margin-left:12px;">
-      ${renderVoteControls(jobId, item?.upvotes || 0, item?.downvotes || 0, item?.user_vote || 0)}
-    </span>
   `;
 
   // Load comments for this song
@@ -3182,10 +3333,10 @@ function renderTabs(jobId) {
       <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       Subtitled
     </div>` : '';
+  const title = currentJob ? escapeHtml(currentJob.title || 'Karaoke Video') : 'Karaoke Video';
   _tabsEl().innerHTML = `
     <div class="tab active" data-tab="video" onclick="switchTab('video','${id}')">
-      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-      Karaoke Video
+      ${title}
     </div>
     ${subtitledTab}
   `;
@@ -3218,7 +3369,7 @@ function switchTab(tab, jobId) {
   if (tab === 'video') {
     area.innerHTML = `
       <div class="video-container" id="karaoke-video-container">
-        <video id="media-el" controls preload="metadata" src="/api/jobs/${id}/video"></video>
+        <video id="media-el" controls preload="auto" src="/api/jobs/${id}/video" autoplay></video>
         <div class="vocal-toggle">
           <label class="toggle-switch" title="Toggle vocals">
             <input type="checkbox" id="vocal-toggle-cb" onchange="toggleVocals(this.checked)">
@@ -3235,6 +3386,12 @@ function switchTab(tab, jobId) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Download Karaoke Video
         </a>
+        <div class="tab-download-right">
+          <span class="vote-controls" data-vote-id="${id}">${renderVoteControls(id, _getVoteData(id, 'up'), _getVoteData(id, 'down'), _getVoteData(id, 'user'))}</span>
+          <button class="player-share-btn" onclick="sharePlayer()" title="Copy link">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
+        </div>
       </div>`;
   } else if (tab === 'instrumental') {
     area.innerHTML = `
@@ -3494,7 +3651,7 @@ function renderLibraryFilterBar() {
   for (const item of libraryItems) {
     if (item.channel) channelCounts[item.channel] = (channelCounts[item.channel] || 0) + 1;
     const m = item.mode || 'karaoke';
-    const type = m === 'both' ? 'Karaoke + Subtitles' : (m === 'subtitled' ? 'Subtitled' : 'Karaoke');
+    const type = m === 'subtitled' ? 'Subtitled' : 'Karaoke';
     typeCounts[type] = (typeCounts[type] || 0) + 1;
   }
 
@@ -3586,7 +3743,7 @@ function renderLibraryGrid() {
     // Type filter
     if (libraryFilters.types.size > 0) {
       const m = item.mode || 'karaoke';
-      const type = m === 'both' ? 'Karaoke + Subtitles' : (m === 'subtitled' ? 'Subtitled' : 'Karaoke');
+      const type = m === 'subtitled' ? 'Subtitled' : 'Karaoke';
       if (!libraryFilters.types.has(type)) return false;
     }
     return true;
@@ -3635,7 +3792,7 @@ function renderLibraryGrid() {
         <div class="library-info">
           <h3>${escapeHtml(item.title || 'Unknown')}</h3>
           ${channel ? `<div class="channel">${channel}</div>` : ''}
-          <span class="meta">${duration || ''} <span class="vote-controls-compact" data-vote-id="${item.id}">${renderVoteControlsCompact(item.id, item.upvotes, item.downvotes, item.user_vote)}</span></span>
+          <span class="meta">${duration || ''} <span class="vote-controls-compact" data-vote-id="${item.id}">${renderVoteControlsCompact(item.id, item.upvotes, item.downvotes, item.user_vote)}</span>${item.comment_count > 0 ? `<span class="comment-count-badge" onclick="event.stopPropagation(); showPlayerForJob('${item.id}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> ${item.comment_count}</span>` : ''}</span>
         </div>
         <button class="library-share-btn" onclick="event.stopPropagation(); shareLink('${item.id}')" title="Copy link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -3711,6 +3868,15 @@ async function voteOnJob(jobId, value) {
   } catch (e) {}
 }
 
+function _getVoteData(jobId, type) {
+  const item = (typeof libraryItems !== 'undefined' ? libraryItems : []).find(i => i.id === jobId);
+  if (!item) return 0;
+  if (type === 'up') return item.upvotes || 0;
+  if (type === 'down') return item.downvotes || 0;
+  if (type === 'user') return item.user_vote || 0;
+  return 0;
+}
+
 function renderVoteControls(jobId, upvotes, downvotes, userVote) {
   const net = (upvotes || 0) - (downvotes || 0);
   return `
@@ -3779,14 +3945,7 @@ function copyShareLink() {
 
 function sharePlayer() {
   const url = window.location.href;
-  navigator.clipboard.writeText(url).then(() => {
-    const btn = document.getElementById('btn-share');
-    const orig = btn.innerHTML;
-    btn.innerHTML = '<span style="font-size:0.8rem;color:#6b8f5e;">Copied!</span>';
-    setTimeout(() => { btn.innerHTML = orig; }, 1500);
-  }).catch(() => {
-    prompt('Copy this link:', url);
-  });
+  shareLink(currentJob ? currentJob.id : '');
 }
 
 let currentUser = null;
@@ -3821,11 +3980,11 @@ function renderUserMenu() {
       <div class="user-dropdown" id="user-dropdown">
         <div class="user-dropdown-header">${escapeHtml(currentUser.name || currentUser.email)}</div>
         <div class="user-dropdown-divider"></div>
-        <button class="user-dropdown-item" onclick="openProfile()">Profile</button>
-        <button class="user-dropdown-item" onclick="openPlaylistsOverlay()">Playlists</button>
-        ${currentUser.role === 'admin' ? '<button class="user-dropdown-item" onclick="openAdminPanel()">Admin Panel</button>' : ''}
+        <button class="user-dropdown-item" onclick="openProfile()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Profile</button>
+        <button class="user-dropdown-item" onclick="openPlaylistsOverlay()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> Playlists</button>
+        ${currentUser.role === 'admin' ? '<button class="user-dropdown-item" onclick="openAdminPanel()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Admin Panel</button>' : ''}
         <div class="user-dropdown-divider"></div>
-        <button class="user-dropdown-item" onclick="logout()">Sign Out</button>
+        <button class="user-dropdown-item" onclick="logout()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Sign Out</button>
       </div>
     </div>
   `;
@@ -3888,26 +4047,83 @@ function closeProfile() {
 }
 
 function renderProfileInfo() {
-  const el = document.getElementById('profile-info');
-  if (!currentUser || !el) return;
+  if (!currentUser) return;
   const initials = (currentUser.name || currentUser.email || '?')
     .split(/[\s@]/).filter(Boolean).slice(0,2).map(s=>s[0].toUpperCase()).join('');
   const avatar = currentUser.picture_url
-    ? `<img src="${currentUser.picture_url}" style="width:64px;height:64px;border-radius:50%;object-fit:cover;" />`
-    : `<div style="width:64px;height:64px;border-radius:50%;background:var(--border-accent);color:var(--text-bright);display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:700;">${initials}</div>`;
-  el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
-      ${avatar}
-      <div>
-        <div style="font-size:1.1rem;font-weight:600;color:var(--text-bright);">${escapeHtml(currentUser.name || '')}</div>
-        <div style="font-size:0.85rem;color:var(--text-dim);">${escapeHtml(currentUser.email || '')}</div>
-        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;text-transform:uppercase;">${currentUser.role || 'user'}</div>
-      </div>
-    </div>
-    <div style="font-size:0.8rem;color:var(--text-dim);">
-      Joined ${currentUser.created_at ? new Date(currentUser.created_at).toLocaleDateString() : 'N/A'}
-    </div>
-  `;
+    ? `<img src="${currentUser.picture_url}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;" />`
+    : `<div style="width:52px;height:52px;border-radius:50%;background:var(--border-accent);color:var(--text-bright);display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:700;">${initials}</div>`;
+  document.getElementById('profile-avatar').innerHTML = `${avatar}
+    <div>
+      <div style="font-size:1rem;font-weight:600;color:var(--text-bright);">${escapeHtml(currentUser.name || '')}</div>
+      <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">${currentUser.role || 'user'}</div>
+    </div>`;
+  document.getElementById('profile-name').value = currentUser.name || '';
+  document.getElementById('profile-email').value = currentUser.email || '';
+  document.getElementById('profile-current-pw').value = '';
+  document.getElementById('profile-new-pw').value = '';
+  document.getElementById('profile-message').style.display = 'none';
+  document.getElementById('profile-meta').textContent =
+    'Joined ' + (currentUser.created_at ? new Date(currentUser.created_at).toLocaleDateString() : 'N/A');
+}
+
+async function saveProfile(e) {
+  e.preventDefault();
+  const btn = document.getElementById('profile-save-btn');
+  const msg = document.getElementById('profile-message');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  msg.style.display = 'none';
+
+  const body = {};
+  const name = document.getElementById('profile-name').value.trim();
+  const email = document.getElementById('profile-email').value.trim();
+  const currentPw = document.getElementById('profile-current-pw').value;
+  const newPw = document.getElementById('profile-new-pw').value;
+
+  if (name && name !== currentUser.name) body.name = name;
+  if (email && email !== currentUser.email) body.email = email;
+  if (newPw) {
+    body.new_password = newPw;
+    body.current_password = currentPw;
+  }
+
+  if (Object.keys(body).length === 0) {
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+    msg.textContent = 'No changes to save.';
+    msg.style.color = 'var(--text-muted)';
+    msg.style.display = 'block';
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/auth/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      msg.textContent = data.detail || 'Failed to update profile.';
+      msg.style.color = 'var(--error)';
+      msg.style.display = 'block';
+      return;
+    }
+    currentUser = { ...currentUser, ...data.user };
+    renderUserMenu();
+    renderProfileInfo();
+    msg.textContent = 'Profile updated!';
+    msg.style.color = 'var(--success)';
+    msg.style.display = 'block';
+  } catch (err) {
+    msg.textContent = 'Failed to update profile.';
+    msg.style.color = 'var(--error)';
+    msg.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+  }
 }
 
 function openSettings() {
@@ -4005,49 +4221,258 @@ async function submitFeedback(e) {
   } catch (err) { alert('Failed to submit feedback.'); }
 }
 
+let _adminFeedbackFilter = 'all';
+
 async function openAdminPanel() {
   document.getElementById('admin-overlay').classList.remove('hidden');
-  await loadAdminUsers();
-  await loadAdminFeedback();
+  document.getElementById('user-dropdown').classList.remove('open');
+  switchAdminTab('users');
+  loadAdminStats();
 }
 
 function closeAdmin() {
   document.getElementById('admin-overlay').classList.add('hidden');
 }
 
+function switchAdminTab(tab) {
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.admin-tab-content').forEach(c => c.style.display = 'none');
+  document.getElementById(`admin-tab-${tab}`).style.display = '';
+  if (tab === 'users') loadAdminUsers();
+  else if (tab === 'feedback') loadAdminFeedback();
+  else if (tab === 'comments') loadAdminComments();
+  else if (tab === 'invitations') loadAdminInvitations();
+}
+
+async function loadAdminStats() {
+  const el = document.getElementById('admin-stats');
+  try {
+    const resp = await fetch('/api/admin/stats');
+    if (!resp.ok) { el.innerHTML = ''; return; }
+    const s = await resp.json();
+    el.innerHTML = [
+      { val: s.users, label: 'Users' },
+      { val: s.songs, label: 'Songs' },
+      { val: s.storage_mb + ' MB', label: 'Storage' },
+      { val: s.comments, label: 'Comments' },
+      { val: s.feedback_new, label: 'New Feedback' },
+      { val: s.queue_length, label: 'Queue' },
+    ].map(d => `<div class="admin-stat"><div class="val">${d.val}</div><div class="label">${d.label}</div></div>`).join('');
+  } catch (e) { el.innerHTML = ''; }
+}
+
 async function loadAdminUsers() {
-  const container = document.getElementById('admin-users');
+  const container = document.getElementById('admin-tab-users');
   try {
     const resp = await fetch('/api/admin/users');
     const data = await resp.json();
-    container.innerHTML = data.users.map(u => `
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-bottom:1px solid var(--border-light);font-size:0.85rem;">
-        <div style="flex:1;">
-          <strong style="color:var(--text-bright);">${escapeHtml(u.name)}</strong>
-          <span style="color:var(--text-dim);margin-left:8px;">${escapeHtml(u.email)}</span>
+    container.innerHTML = `<div class="admin-section">${data.users.map(u => {
+      const lastLogin = u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never';
+      const joined = u.created_at ? new Date(u.created_at).toLocaleDateString() : '';
+      const p = u.permissions || {};
+      return `<div style="border-bottom:1px solid var(--border-light);">
+        <div class="admin-row">
+          <div style="flex:1;min-width:0;">
+            <span class="name">${escapeHtml(u.name)}</span>
+            <span class="email" style="margin-left:6px;">${escapeHtml(u.email)}</span>
+            <div class="meta">Joined ${joined} &middot; Last login ${lastLogin}</div>
+          </div>
+          <span class="role-badge ${u.role}">${u.role}</span>
+          <div class="admin-row-actions">
+            <button class="admin-btn" onclick="toggleAdminPerms('${u.id}')" title="Permissions">&#9881;</button>
+            <button class="admin-btn" onclick="adminToggleRole('${u.id}', '${u.role}')">${u.role === 'admin' ? 'Demote' : 'Promote'}</button>
+            <button class="admin-btn danger" onclick="adminDeleteUser('${u.id}', '${escapeHtml(u.name)}')">&times;</button>
+          </div>
         </div>
-        <span style="color:${u.role==='admin'?'var(--accent)':'var(--text-dim)'};font-size:0.75rem;font-weight:600;text-transform:uppercase;">${u.role}</span>
-      </div>
-    `).join('') || '<p style="color:var(--text-dim);padding:16px;">No users.</p>';
-  } catch (e) { container.innerHTML = '<p style="color:var(--error);">Failed to load users.</p>'; }
+        <div class="admin-perms" id="admin-perms-${u.id}" style="display:none;padding:10px 12px;background:var(--bg-base);border-top:1px solid var(--border-light);">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:0.75rem;">
+            <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">
+              Max Karaoke/day
+              <input type="number" min="0" value="${p.max_karaoke_per_day ?? 5}" id="perm-karaoke-${u.id}"
+                style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">
+              Max Subtitled/day
+              <input type="number" min="0" value="${p.max_subtitled_per_day ?? 15}" id="perm-subtitled-${u.id}"
+                style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">
+              Max Queue Length
+              <input type="number" min="0" value="${p.max_queue_length ?? 10}" id="perm-queue-${u.id}"
+                style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+            </label>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:0.75rem;">
+            <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
+              <input type="checkbox" ${p.can_download_karaoke !== false ? 'checked' : ''} id="perm-dl-karaoke-${u.id}" style="accent-color:var(--accent);" /> Download Karaoke
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
+              <input type="checkbox" ${p.can_download_instrumental !== false ? 'checked' : ''} id="perm-dl-instr-${u.id}" style="accent-color:var(--accent);" /> Download Instrumental
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
+              <input type="checkbox" ${p.can_download_vocals !== false ? 'checked' : ''} id="perm-dl-vocals-${u.id}" style="accent-color:var(--accent);" /> Download Vocals
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
+              <input type="checkbox" ${p.can_delete_library ? 'checked' : ''} id="perm-delete-${u.id}" style="accent-color:var(--accent);" /> Delete Library
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
+              <input type="checkbox" ${p.can_share_library !== false ? 'checked' : ''} id="perm-share-${u.id}" style="accent-color:var(--accent);" /> Share Library
+            </label>
+          </div>
+          <div style="margin-top:10px;text-align:right;">
+            <button class="admin-btn" style="padding:5px 16px;" onclick="saveAdminPerms('${u.id}')">Save Permissions</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('') || '<p style="color:var(--text-dim);padding:16px;">No users.</p>'}</div>`;
+  } catch (e) { container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load users.</p>'; }
+}
+
+function toggleAdminPerms(userId) {
+  const el = document.getElementById(`admin-perms-${userId}`);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+async function saveAdminPerms(userId) {
+  const body = {
+    max_karaoke_per_day: parseInt(document.getElementById(`perm-karaoke-${userId}`).value) || 0,
+    max_subtitled_per_day: parseInt(document.getElementById(`perm-subtitled-${userId}`).value) || 0,
+    max_queue_length: parseInt(document.getElementById(`perm-queue-${userId}`).value) || 0,
+    can_download_karaoke: document.getElementById(`perm-dl-karaoke-${userId}`).checked,
+    can_download_instrumental: document.getElementById(`perm-dl-instr-${userId}`).checked,
+    can_download_vocals: document.getElementById(`perm-dl-vocals-${userId}`).checked,
+    can_delete_library: document.getElementById(`perm-delete-${userId}`).checked,
+    can_share_library: document.getElementById(`perm-share-${userId}`).checked,
+  };
+  const resp = await fetch(`/api/admin/users/${userId}/permissions`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (resp.ok) {
+    loadAdminUsers();
+  } else {
+    alert('Failed to save permissions');
+  }
+}
+
+async function adminToggleRole(userId, currentRole) {
+  const newRole = currentRole === 'admin' ? 'user' : 'admin';
+  await fetch(`/api/admin/users/${userId}/role?role=${newRole}`, { method: 'PUT' });
+  loadAdminUsers();
+  loadAdminStats();
+}
+
+async function adminDeleteUser(userId, name) {
+  if (!await showConfirm(`Delete user "${name}" and all their data?`)) return;
+  const resp = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    alert(err.detail || 'Failed to delete user');
+    return;
+  }
+  loadAdminUsers();
+  loadAdminStats();
 }
 
 async function loadAdminFeedback() {
-  const container = document.getElementById('admin-feedback');
+  const container = document.getElementById('admin-tab-feedback');
   try {
     const resp = await fetch('/api/admin/feedback');
     const data = await resp.json();
-    container.innerHTML = data.feedback.map(fb => `
-      <div style="padding:10px;border-bottom:1px solid var(--border-light);font-size:0.85rem;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <strong style="color:var(--text-bright);">${escapeHtml(fb.subject)}</strong>
-          <span style="font-size:0.7rem;color:${fb.status==='new'?'var(--accent)':'var(--text-dim)'};text-transform:uppercase;">${fb.status}</span>
+    let items = data.feedback || [];
+    if (_adminFeedbackFilter !== 'all') {
+      items = items.filter(fb => fb.status === _adminFeedbackFilter);
+    }
+
+    const filterBtns = ['all','new','reviewed','resolved'].map(f =>
+      `<button class="admin-filter-btn${_adminFeedbackFilter === f ? ' active' : ''}" onclick="_adminFeedbackFilter='${f}'; loadAdminFeedback()">${f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}</button>`
+    ).join('');
+
+    container.innerHTML = `<div class="admin-filter-row">${filterBtns}</div>
+      <div class="admin-section">${items.map(fb => {
+        const statusColors = { new: 'var(--accent)', reviewed: 'var(--info)', resolved: 'var(--success)' };
+        const statusOpts = ['new','reviewed','resolved'].filter(s => s !== fb.status).map(s =>
+          `<button class="admin-btn" onclick="adminSetFeedbackStatus('${fb.id}','${s}')">${s}</button>`
+        ).join('');
+        const screenshotBtn = fb.screenshot_path
+          ? `<button class="admin-btn" onclick="window.open('/api/admin/feedback/${fb.id}/screenshot','_blank')">Screenshot</button>`
+          : '';
+        return `<div class="admin-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="name" style="flex:1;">${escapeHtml(fb.subject)}</span>
+            <span class="role-badge" style="color:${statusColors[fb.status] || 'var(--text-dim)'};background:rgba(255,255,255,0.05);">${fb.status}</span>
+          </div>
+          <p style="color:var(--text);font-size:0.8rem;margin:0;line-height:1.4;">${escapeHtml(fb.description).substring(0, 300)}</p>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="meta">${fb.user_name || fb.user_email || ''} &mdash; ${fb.created_at ? new Date(fb.created_at).toLocaleDateString() : ''}</span>
+            <div class="admin-row-actions">${screenshotBtn}${statusOpts}<button class="admin-btn danger" onclick="adminDeleteFeedback('${fb.id}')">&times;</button></div>
+          </div>
+        </div>`;
+      }).join('') || '<p style="color:var(--text-dim);padding:16px;">No feedback.</p>'}</div>`;
+  } catch (e) { container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load feedback.</p>'; }
+}
+
+async function adminSetFeedbackStatus(fbId, status) {
+  await fetch(`/api/admin/feedback/${fbId}?status=${status}`, { method: 'PUT' });
+  loadAdminFeedback();
+  loadAdminStats();
+}
+
+async function adminDeleteFeedback(fbId) {
+  if (!await showConfirm('Delete this feedback?')) return;
+  await fetch(`/api/admin/feedback/${fbId}`, { method: 'DELETE' });
+  loadAdminFeedback();
+  loadAdminStats();
+}
+
+async function loadAdminComments() {
+  const container = document.getElementById('admin-tab-comments');
+  try {
+    const resp = await fetch('/api/admin/comments');
+    const data = await resp.json();
+    const comments = data.comments || [];
+    container.innerHTML = `<div class="admin-section">${comments.map(c => {
+      const timeStr = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
+      return `<div class="admin-row">
+        <div style="flex:1;min-width:0;">
+          <span class="name">${escapeHtml(c.user_name || 'Unknown')}</span>
+          <span class="meta" style="margin-left:6px;">on ${escapeHtml(c.job_id).substring(0, 30)}... &middot; ${timeStr}</span>
+          <div style="color:var(--text);font-size:0.8rem;margin-top:3px;line-height:1.3;">${escapeHtml(c.text).substring(0, 200)}</div>
         </div>
-        <p style="color:var(--text);margin:4px 0;">${escapeHtml(fb.description).substring(0, 200)}</p>
-        <span style="font-size:0.7rem;color:var(--text-muted);">${fb.user_name || fb.user_email || ''} &mdash; ${fb.created_at ? new Date(fb.created_at).toLocaleDateString() : ''}</span>
-      </div>
-    `).join('') || '<p style="color:var(--text-dim);padding:16px;">No feedback yet.</p>';
-  } catch (e) { container.innerHTML = '<p style="color:var(--error);">Failed to load feedback.</p>'; }
+        <div class="admin-row-actions">
+          <button class="admin-btn danger" onclick="adminDeleteComment('${c.id}')">&times;</button>
+        </div>
+      </div>`;
+    }).join('') || '<p style="color:var(--text-dim);padding:16px;">No comments.</p>'}</div>`;
+  } catch (e) { container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load comments.</p>'; }
+}
+
+async function adminDeleteComment(commentId) {
+  if (!await showConfirm('Delete this comment?')) return;
+  await fetch(`/api/admin/comments/${commentId}`, { method: 'DELETE' });
+  loadAdminComments();
+  loadAdminStats();
+}
+
+async function loadAdminInvitations() {
+  const container = document.getElementById('admin-tab-invitations');
+  try {
+    const resp = await fetch('/api/admin/invitations');
+    const data = await resp.json();
+    const invites = data.invitations || [];
+    container.innerHTML = `<div class="admin-section">${invites.map(i => {
+      const timeStr = i.created_at ? new Date(i.created_at).toLocaleDateString() : '';
+      const statusColor = i.status === 'accepted' ? 'var(--success)' : 'var(--text-muted)';
+      return `<div class="admin-row">
+        <div style="flex:1;min-width:0;">
+          <span class="name">${escapeHtml(i.email)}</span>
+          <span class="meta" style="margin-left:6px;">invited by ${escapeHtml(i.inviter_name || 'Unknown')} &middot; ${timeStr}</span>
+        </div>
+        <span class="role-badge" style="color:${statusColor};background:rgba(255,255,255,0.05);">${i.status}</span>
+      </div>`;
+    }).join('') || '<p style="color:var(--text-dim);padding:16px;">No invitations.</p>'}</div>`;
+  } catch (e) { container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load invitations.</p>'; }
 }
 
 // ---- Playlists ----
