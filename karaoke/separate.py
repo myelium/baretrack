@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 
-def separate(audio_path: Path, output_dir: Path) -> tuple[Path, Path]:
+def separate(audio_path: Path, output_dir: Path, device: str = "cpu") -> tuple[Path, Path]:
     """
     Run Demucs htdemucs model to separate vocals and instrumental.
 
@@ -19,7 +19,7 @@ def separate(audio_path: Path, output_dir: Path) -> tuple[Path, Path]:
             sys.executable, "-m", "demucs",
             "-n", "htdemucs_ft",
             "--two-stems", "vocals",   # only split into vocals + no_vocals
-            "-d", "cpu",               # MPS lacks sparse tensor support
+            "-d", device,
             "--out", str(output_dir),
             str(audio_path),
         ],

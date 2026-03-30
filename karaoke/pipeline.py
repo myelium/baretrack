@@ -10,7 +10,7 @@ from .subtitles import build_ass
 from .compose import compose
 
 
-def run(url: str, output_dir: Path) -> Path:
+def run(url: str, output_dir: Path, device: str = "auto") -> Path:
     """
     Run the full pipeline for a YouTube URL.
 
@@ -23,7 +23,8 @@ def run(url: str, output_dir: Path) -> Path:
 
     Returns the path to the output karaoke video.
     """
-    device = "cpu"  # MPS lacks sparse tensor support needed by Whisper
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
     work_dir = output_dir / "work"
@@ -33,7 +34,7 @@ def run(url: str, output_dir: Path) -> Path:
     video_path, audio_path = download(url, work_dir)
 
     print("[2/5] Separating vocals from instrumental...")
-    instrumental_path, vocals_path = separate(audio_path, work_dir / "demucs")
+    instrumental_path, vocals_path = separate(audio_path, work_dir / "demucs", device=device)
 
     print("[3/5] Transcribing lyrics...")
     # Transcribe from original mixed audio — Whisper is trained on full mixes

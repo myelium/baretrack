@@ -39,32 +39,18 @@ def _centiseconds(seconds: float) -> int:
 
 def _build_line(words: list[Word], line_start: float, line_end: float) -> str:
     """
-    Build one ASS Dialogue line.
-
-    Uses segment-level line_start/line_end for reliable display timing.
-    Word-level timestamps are used only to derive relative proportions for
-    the \\k highlight durations within the line.
+    Build one ASS Dialogue line using actual word timestamps for \\k durations.
     """
-    line_duration = line_end - line_start
-
-    # Compute each word's relative share of the line duration using its
-    # word-level timestamps. If alignment produced suspicious timestamps
-    # (all words collapsed to same time), fall back to equal distribution.
-    word_spans = []
+    # Use each word's actual duration directly from its timestamps
+    k_durations = []
     for i, w in enumerate(words):
         if i < len(words) - 1:
-            span = max(0.0, words[i + 1].start - w.start)
+            # Duration until next word starts
+            d = max(0.01, words[i + 1].start - w.start)
         else:
-            span = max(0.0, w.end - w.start)
-        word_spans.append(span)
-
-    total_span = sum(word_spans)
-
-    if total_span < 0.01:
-        # Alignment collapsed — distribute evenly
-        k_durations = [line_duration / len(words)] * len(words)
-    else:
-        k_durations = [line_duration * (s / total_span) for s in word_spans]
+            # Last word: use its own end time
+            d = max(0.01, w.end - w.start)
+        k_durations.append(d)
 
     text_parts = [
         f"{{\\k{_centiseconds(d)}}}{w.text} "
@@ -82,22 +68,24 @@ def build_ass(segments: list[Segment], output_path: Path) -> Path:
     """
     Build an ASS subtitle file from Whisper segments.
 
-    Each segment uses its reliable Whisper-level start/end for display timing.
-    Long segments (many words) are split into sub-lines, with the segment
-    duration divided proportionally.
+    Long segments are split into sub-lines of WORDS_PER_LINE words.
+    Each sub-line uses the actual word timestamps for display timing.
     """
     lines = []
 
     for seg in segments:
         words = seg.words
         n_lines = math.ceil(len(words) / WORDS_PER_LINE)
-        seg_duration = seg.end - seg.start
 
         for i in range(n_lines):
             chunk = words[i * WORDS_PER_LINE : (i + 1) * WORDS_PER_LINE]
-            # Divide segment time proportionally by word count
-            line_start = seg.start + (i / n_lines) * seg_duration
-            line_end = seg.start + ((i + 1) / n_lines) * seg_duration
+            line_start = chunk[0].start
+            # End at the next chunk's start (or segment end for last chunk)
+            if i < n_lines - 1:
+                next_chunk_start = words[(i + 1) * WORDS_PER_LINE].start
+                line_end = next_chunk_start
+            else:
+                line_end = seg.end
             lines.append(_build_line(chunk, line_start, line_end))
 
     output_path.write_text(ASS_HEADER + "\n".join(lines) + "\n")
@@ -118,8 +106,7 @@ def build_srt(segments: list[Segment], output_path: Path) -> Path:
     """
     Build a standard SRT subtitle file from Whisper segments.
 
-    Groups words into lines of WORDS_PER_LINE, with segment-level timing
-    divided proportionally across sub-lines.
+    Groups words into lines of WORDS_PER_LINE, using actual word timestamps.
     """
     entries = []
     idx = 1
@@ -127,12 +114,14 @@ def build_srt(segments: list[Segment], output_path: Path) -> Path:
     for seg in segments:
         words = seg.words
         n_lines = math.ceil(len(words) / WORDS_PER_LINE)
-        seg_duration = seg.end - seg.start
 
         for i in range(n_lines):
             chunk = words[i * WORDS_PER_LINE : (i + 1) * WORDS_PER_LINE]
-            line_start = seg.start + (i / n_lines) * seg_duration
-            line_end = seg.start + ((i + 1) / n_lines) * seg_duration
+            line_start = chunk[0].start
+            if i < n_lines - 1:
+                line_end = words[(i + 1) * WORDS_PER_LINE].start
+            else:
+                line_end = seg.end
             text = " ".join(w.text for w in chunk)
             entries.append(
                 f"{idx}\n{_srt_time(line_start)} --> {_srt_time(line_end)}\n{text}"

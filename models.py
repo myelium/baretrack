@@ -1,7 +1,8 @@
 """SQLAlchemy models for users, permissions, feedback, playlists, comments, and invitations."""
 
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -28,8 +29,10 @@ class User(Base):
     dark_mode: Mapped[str] = mapped_column(String(20), default="dark")  # "dark", "day", "night"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    invited_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     permissions: Mapped["UserPermissions"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+    invited_by: Mapped["User | None"] = relationship(remote_side="User.id", foreign_keys=[invited_by_id])
 
     def to_dict(self):
         return {
@@ -42,6 +45,7 @@ class User(Base):
             "dark_mode": self.dark_mode,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_login": self.last_login.isoformat() if self.last_login else None,
+            "invited_by_id": str(self.invited_by_id) if self.invited_by_id else None,
         }
 
 
@@ -57,6 +61,8 @@ class UserPermissions(Base):
     can_download_vocals: Mapped[bool] = mapped_column(Boolean, default=True)
     can_delete_library: Mapped[bool] = mapped_column(Boolean, default=False)
     can_share_library: Mapped[bool] = mapped_column(Boolean, default=True)
+    max_invitations: Mapped[int] = mapped_column(Integer, default=5)  # 0 = unlimited
+    can_request_songs: Mapped[bool] = mapped_column(Boolean, default=True)
 
     user: Mapped["User"] = relationship(back_populates="permissions")
 
@@ -70,6 +76,8 @@ class UserPermissions(Base):
             "can_download_vocals": self.can_download_vocals,
             "can_delete_library": self.can_delete_library,
             "can_share_library": self.can_share_library,
+            "max_invitations": self.max_invitations,
+            "can_request_songs": self.can_request_songs,
         }
 
 
@@ -182,22 +190,106 @@ class Comment(Base):
         }
 
 
+class JobMetadata(Base):
+    """Enrichment data for processed jobs — lives in DB, not on disk."""
+    __tablename__ = "job_metadata"
+
+    job_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    title: Mapped[str | None] = mapped_column(String(512))
+    artist: Mapped[str | None] = mapped_column(String(255))
+    year: Mapped[str | None] = mapped_column(String(10))
+    view_count: Mapped[int] = mapped_column(Integer, default=0)
+    analysis_text: Mapped[str | None] = mapped_column(Text)
+    analysis_song_info: Mapped[str | None] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    def to_dict(self):
+        return {
+            "job_id": self.job_id,
+            "title": self.title,
+            "artist": self.artist,
+            "year": self.year,
+            "view_count": self.view_count,
+            "analysis_text": self.analysis_text,
+            "analysis_song_info": self.analysis_song_info,
+        }
+
+
+def _invite_expiry():
+    return datetime.now(timezone.utc) + timedelta(days=7)
+
+
 class Invitation(Base):
     __tablename__ = "invitations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     inviter_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False, default=lambda: secrets.token_urlsafe(32))
     status: Mapped[str] = mapped_column(String(20), default="pending")  # "pending", "accepted"
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_invite_expiry)
+    accepted_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
-    inviter: Mapped["User"] = relationship()
+    inviter: Mapped["User"] = relationship(foreign_keys=[inviter_id])
+    accepted_by: Mapped["User | None"] = relationship(foreign_keys=[accepted_by_id])
+
+    def is_valid(self) -> bool:
+        return self.status == "pending" and datetime.now(timezone.utc) < self.expires_at
 
     def to_dict(self):
         return {
             "id": str(self.id),
             "email": self.email,
+            "token": self.token,
             "inviter_name": self.inviter.name if self.inviter else None,
             "status": self.status,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "accepted_by_id": str(self.accepted_by_id) if self.accepted_by_id else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class WishlistItem(Base):
+    __tablename__ = "wishlist_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    url: Mapped[str | None] = mapped_column(String(512))
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    artist: Mapped[str | None] = mapped_column(String(255))
+    thumbnail: Mapped[str | None] = mapped_column(String(512))
+    note: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="open")  # "open", "queued", "fulfilled"
+    fulfilled_by_job_id: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    user: Mapped["User"] = relationship()
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id),
+            "user_name": self.user.name if self.user else None,
+            "url": self.url,
+            "title": self.title,
+            "artist": self.artist,
+            "thumbnail": self.thumbnail,
+            "note": self.note,
+            "status": self.status,
+            "fulfilled_by_job_id": self.fulfilled_by_job_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WishlistVote(Base):
+    __tablename__ = "wishlist_votes"
+    __table_args__ = (
+        UniqueConstraint("user_id", "wishlist_item_id", name="uq_user_wishlist_vote"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    wishlist_item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("wishlist_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

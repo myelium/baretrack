@@ -26,11 +26,13 @@ from sqlalchemy.orm import Session
 
 from auth import (
     create_token, create_user_with_permissions, get_current_user,
-    get_optional_user, hash_password, require_admin, verify_password,
+    get_optional_user, hash_password, is_admin, require_admin, verify_password,
 )
-from database import get_db
-from models import Comment, Feedback, Invitation, Playlist, PlaylistItem, User, UserPermissions, Vote
+from database import SessionLocal, get_db
+from models import Comment, Feedback, Invitation, JobMetadata, Playlist, PlaylistItem, User, UserPermissions, Vote, WishlistItem, WishlistVote
 
+import logging
+import os
 import shutil
 
 from karaoke.compose import compose
@@ -43,6 +45,84 @@ from karaoke.translate import translate_srt
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 JOBS_DIR = Path("output/jobs")
 STATS_PATH = JOBS_DIR / "stats.json"
+
+# --- Compute device (cpu/cuda) ---
+def _detect_device() -> str:
+    env = os.getenv("DEVICE", "auto").lower()
+    if env in ("cpu", "cuda"):
+        return env
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+DEVICE = _detect_device()
+
+# --- Email via Resend ---
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@baretraks.com")
+logger = logging.getLogger(__name__)
+
+
+def _invite_email_html(inviter_name: str, link: str) -> str:
+    return f"""\
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#0e0c09;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0e0c09;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;">
+        <!-- Header -->
+        <tr><td align="center" style="padding-bottom:32px;">
+          <img src="{BASE_URL}/static/logo.png" alt="Baretraks" width="180" style="display:block;margin:0 auto;" />
+        </td></tr>
+        <!-- Card -->
+        <tr><td style="background:#1a1612;border-radius:12px;padding:36px 32px;border:1px solid #2a2420;">
+          <p style="margin:0 0 16px;font-size:16px;color:#e8e0d4;line-height:1.5;">
+            <strong style="color:#b48c3c;">{inviter_name}</strong> invited you to join Baretraks &mdash; a community for music lovers who want to sing, discover, and share.
+          </p>
+          <p style="margin:0 0 28px;font-size:14px;color:#8a8072;line-height:1.5;">
+            Create karaoke videos, queue up songs with friends, and explore music across languages.
+          </p>
+          <!-- Button -->
+          <table cellpadding="0" cellspacing="0" width="100%"><tr><td align="center">
+            <a href="{link}" style="display:inline-block;background:#b48c3c;color:#1a1612;font-size:15px;font-weight:600;padding:12px 32px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">
+              Accept Invitation
+            </a>
+          </td></tr></table>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td align="center" style="padding-top:24px;">
+          <p style="margin:0 0 8px;font-size:12px;color:#5a5248;">
+            Or copy this link: <a href="{link}" style="color:#b48c3c;text-decoration:underline;">{link}</a>
+          </p>
+          <p style="margin:0;font-size:11px;color:#3a3530;">
+            This invitation was sent by {inviter_name} via Baretraks. If you didn&rsquo;t expect this, you can ignore it.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+def send_invite_email(to_email: str, inviter_name: str, token: str) -> bool:
+    """Send an invitation email via Resend. Returns True on success."""
+    if not RESEND_API_KEY:
+        logger.info("RESEND_API_KEY not set — skipping email to %s", to_email)
+        return False
+    import resend
+    resend.api_key = RESEND_API_KEY
+    link = f"{BASE_URL}/login?invite={token}"
+    try:
+        resend.Emails.send({
+            "from": EMAIL_FROM,
+            "to": [to_email],
+            "subject": f"{inviter_name} invited you to Baretraks",
+            "html": _invite_email_html(inviter_name, link),
+        })
+        return True
+    except Exception as e:
+        logger.error("Failed to send invite email to %s: %s", to_email, e)
+        return False
 
 # Default multipliers (used when no history exists)
 DEFAULT_MULTIPLIERS = {
@@ -135,9 +215,37 @@ def _load_queue() -> None:
             _queue = []
 
 
+_disk_quota_exceeded = False  # set when disk quota blocks production
+
+
+def _get_disk_usage_mb() -> float:
+    """Calculate total disk usage of all job output directories in MB."""
+    total = 0
+    if JOBS_DIR.exists():
+        for d in JOBS_DIR.iterdir():
+            if not d.is_dir():
+                continue
+            for f in d.iterdir():
+                if f.is_file():
+                    total += f.stat().st_size
+    return total / (1024 * 1024)
+
+
 def _process_next_in_queue() -> None:
-    """Start processing the next queued item if nothing is running."""
-    global _job, _pause_requested
+    """Start processing the next queued item if nothing is running.
+    Automatically detects whether to resume from prior progress or start fresh."""
+    global _job, _pause_requested, _disk_quota_exceeded
+
+    # Check global disk quota before starting
+    settings = _load_settings()
+    max_disk = settings.get("max_disk_space_mb", 0)
+    if max_disk > 0:
+        usage = _get_disk_usage_mb()
+        if usage >= max_disk:
+            _disk_quota_exceeded = True
+            return  # don't start new jobs
+    _disk_quota_exceeded = False
+
     with _lock:
         if _job is not None and _job.get("status") == "running":
             return  # something already running
@@ -154,13 +262,25 @@ def _process_next_in_queue() -> None:
     _cancel_requested = False
     _save_queue()
 
-    # Create the job from queue item
     url = next_item["url"]
     mode = next_item.get("mode", "karaoke")
     languages = next_item.get("languages", [])
     job_id = next_item["id"]
     output_dir = JOBS_DIR / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check if there's prior work on disk to resume from
+    resume_from = 1
+    prior_data = {}
+    job_json = output_dir / "job.json"
+    if job_json.exists():
+        try:
+            prior_data = json.loads(job_json.read_text())
+            resume_from = _detect_resume_step(output_dir)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    step_name = f"Resuming from step {resume_from}" if resume_from > 1 else "Starting"
 
     _job = {
         "id": job_id,
@@ -173,18 +293,20 @@ def _process_next_in_queue() -> None:
         "upload_date": next_item.get("upload_date"),
         "categories": next_item.get("categories", []),
         "tags": next_item.get("tags", []),
+        "added_by": next_item.get("added_by"),
+        "added_by_id": next_item.get("added_by_id"),
         "status": "running",
         "step": 0,
-        "step_name": "Starting",
+        "step_name": step_name,
         "step_progress": 0.0,
         "started_at": _now_iso(),
         "step_started_at": _now_iso(),
         "finished_at": None,
-        "audio_duration": None,
+        "audio_duration": prior_data.get("audio_duration"),
         "estimated_total": None,
         "step_estimates": None,
         "error": None,
-        "artifacts": {},
+        "artifacts": prior_data.get("artifacts", {}),
         "output_dir": str(output_dir),
     }
     _save_job_json()
@@ -203,18 +325,79 @@ def _process_next_in_queue() -> None:
         thread = threading.Thread(
             target=_run_pipeline,
             args=(job_id, url, output_dir),
+            kwargs={"resume_from": resume_from},
             daemon=True)
     thread.start()
 
 
 def _on_job_finished() -> None:
-    """Called when a job finishes — remove from queue and start next."""
+    """Called when a job finishes — remove from queue first, then do async work."""
     with _lock:
         job_id = _job["id"] if _job else None
-        # Remove the finished item from queue
+        job_status = _job.get("status") if _job else None
+        job_title = _job.get("title") if _job else None
+        job_artist = _job.get("artist") or (_job.get("channel") if _job else None)
+        job_url = _job.get("url") if _job else None
+        output_dir = Path(_job["output_dir"]) if _job else None
+        # Remove from queue immediately so the frontend sees a clean state
         _queue[:] = [item for item in _queue if item.get("id") != job_id]
     _save_queue()
+
+    # Start the next job before doing slow post-processing
     _process_next_in_queue()
+
+    # --- Post-completion tasks (run after queue is already updated) ---
+
+    # Pre-generate "Between the Lines" analysis for completed jobs
+    if (job_status == "done" and job_id and output_dir
+            and _load_settings().get("feature_analysis", True)):
+        try:
+            lyrics_path = output_dir / "lyrics.json"
+            if lyrics_path.exists():
+                words = json.loads(lyrics_path.read_text())
+                lyrics_text = " ".join(w["text"] for w in words)
+                prompts = _load_prompts()
+                custom_prompt = prompts.get("analysis_prompt") or None
+                from karaoke.analyze_lyrics import analyze_lyrics
+                result = analyze_lyrics(lyrics_text, title=job_title,
+                                        artist=job_artist,
+                                        custom_prompt=custom_prompt)
+                _db = SessionLocal()
+                _meta = _db.query(JobMetadata).filter(
+                    JobMetadata.job_id == job_id).first()
+                if not _meta:
+                    _meta = JobMetadata(job_id=job_id)
+                    _db.add(_meta)
+                _meta.analysis_text = result.get("analysis", "")
+                _meta.analysis_song_info = result.get("song_info", "")
+                if result.get("year"):
+                    _meta.year = result["year"]
+                if not _meta.artist and result.get("song_info"):
+                    info = result["song_info"]
+                    if " by " in info:
+                        parts = info.rsplit(" by ", 1)
+                        if len(parts) == 2:
+                            _meta.artist = parts[1].strip().strip('"')
+                _db.commit()
+                _db.close()
+        except Exception:
+            pass
+
+    # Mark matching wishlist items as fulfilled
+    if job_status == "done" and job_id and job_url:
+        try:
+            _db = SessionLocal()
+            wish_items = _db.query(WishlistItem).filter(
+                WishlistItem.url == job_url,
+                WishlistItem.status.in_(["open", "queued"])
+            ).all()
+            for wi in wish_items:
+                wi.status = "fulfilled"
+                wi.fulfilled_by_job_id = job_id
+            _db.commit()
+            _db.close()
+        except Exception:
+            pass
 
 
 STEP_NAMES = {
@@ -302,6 +485,28 @@ def _convert_to_mp3(wav_path: Path, mp3_path: Path) -> None:
         check=True,
         capture_output=True,
     )
+
+
+def _words_to_segments(words):
+    """Re-segment a flat word list into natural segments based on timing gaps."""
+    from karaoke.transcribe import Segment, Word as TWord
+    if not words:
+        return []
+    SEGMENT_GAP = 1.0  # seconds — gap between words that starts a new segment
+    segments = []
+    current = [words[0]]
+    for i in range(1, len(words)):
+        gap = words[i].start - words[i - 1].end
+        if gap >= SEGMENT_GAP:
+            segments.append(Segment(
+                start=current[0].start, end=current[-1].end, words=current))
+            current = [words[i]]
+        else:
+            current.append(words[i])
+    if current:
+        segments.append(Segment(
+            start=current[0].start, end=current[-1].end, words=current))
+    return segments
 
 
 def _compute_estimates(audio_duration: float) -> list[float]:
@@ -395,7 +600,7 @@ def _run_pipeline(job_id: str, url: str, output_dir: Path,
                   resume_from: int = 1) -> None:
     """Run the full karaoke pipeline in a background thread."""
     try:
-        device = "cpu"  # MPS lacks sparse tensor support needed by Whisper
+        device = DEVICE
         work_dir = output_dir / "work"
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -452,7 +657,7 @@ def _run_pipeline(job_id: str, url: str, output_dir: Path,
             _update_job(step=2, step_name=STEP_NAMES[2], step_progress=0.0,
                          step_started_at=_now_iso())
             _save_job_json()
-            instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs")
+            instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs", device=device)
             _convert_to_mp3(instrumental_wav, instrumental_mp3)
             _convert_to_mp3(vocals_wav, vocals_mp3)
             instrumental_wav.unlink(missing_ok=True)
@@ -484,12 +689,54 @@ def _run_pipeline(job_id: str, url: str, output_dir: Path,
             _update_job(step=3, step_name=STEP_NAMES[3], step_progress=0.0,
                          step_started_at=_now_iso())
             _save_job_json()
-            segments = transcribe(vocals_mp3, device=device)
+            segments, detected_lang = transcribe(vocals_mp3, device=device)
+            _update_job(language_detected=detected_lang)
+            _save_job_json()
             words_list = []
             for seg in segments:
                 for w in seg.words:
                     words_list.append({"text": w.text, "start": w.start, "end": w.end})
+
+            # Correct lyrics using LLM knowledge of the song
+            if _load_settings().get("feature_lyrics_correction", True):
+                _update_job(step_name="Correcting lyrics", step_progress=0.8)
+                _save_job_json()
+                try:
+                    from karaoke.correct_lyrics import correct_lyrics
+                    with _lock:
+                        job_title = _job.get("title") if _job else None
+                        job_channel = _job.get("channel") if _job else None
+                    correction = correct_lyrics(words_list, title=job_title,
+                                                artist=job_channel)
+                    words_list = correction["words"]
+                    if correction.get("identified_artist"):
+                        _update_job(artist=correction["identified_artist"])
+                        _save_job_json()
+                        try:
+                            _db = SessionLocal()
+                            _meta = _db.query(JobMetadata).filter(
+                                JobMetadata.job_id == _job["id"]).first()
+                            if not _meta:
+                                _meta = JobMetadata(job_id=_job["id"])
+                                _db.add(_meta)
+                            if not _meta.artist:
+                                _meta.artist = correction["identified_artist"]
+                            _db.commit()
+                            _db.close()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass  # keep original transcription on failure
+
             (output_dir / "lyrics.json").write_text(json.dumps(words_list))
+
+            # Rebuild segments from corrected words, using natural timing
+            # gaps to create proper segment boundaries (not one giant segment)
+            from karaoke.transcribe import Segment, Word as TWord
+            corrected_words = [TWord(text=w["text"], start=w["start"], end=w["end"])
+                               for w in words_list]
+            segments = _words_to_segments(corrected_words)
+
             step_durations["3"] = time.monotonic() - t0
             with _lock:
                 artifacts = dict(_job.get("artifacts", {}))
@@ -509,13 +756,10 @@ def _run_pipeline(job_id: str, url: str, output_dir: Path,
             _update_job(step=4, step_name=STEP_NAMES[4], step_progress=0.0,
                          step_started_at=_now_iso())
             if segments is None:
-                from karaoke.transcribe import Segment, Word as TWord
+                from karaoke.transcribe import Word as TWord
                 lyrics = json.loads((output_dir / "lyrics.json").read_text())
                 words = [TWord(text=w["text"], start=w["start"], end=w["end"]) for w in lyrics]
-                if words:
-                    segments = [Segment(start=words[0].start, end=words[-1].end, words=words)]
-                else:
-                    segments = []
+                segments = _words_to_segments(words)
             build_ass(segments, subtitles_path)
             step_durations["4"] = time.monotonic() - t0
             with _lock:
@@ -576,7 +820,7 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
     if not languages:
         languages = []
     try:
-        device = "cpu"
+        device = DEVICE
         work_dir = output_dir / "work"
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -615,7 +859,9 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
         _save_job_json()
 
         # Whisper transcribes in the original language (what it does best)
-        segments = transcribe(audio_path, device=device)
+        segments, detected_lang = transcribe(audio_path, device=device)
+        _update_job(language_detected=detected_lang)
+        _save_job_json()
 
         # Save lyrics.json from the source-language transcription
         words_list = []
@@ -637,7 +883,7 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
 
         # --- Step 3: Translate to all target languages via Claude API ---
         if _check_pause(): return
-        if languages:
+        if languages and _load_settings().get("feature_translation", True):
             t0 = time.monotonic()
             source_srt_text = source_srt_path.read_text()
 
@@ -689,7 +935,7 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
     if not languages:
         languages = []
     try:
-        device = "cpu"
+        device = DEVICE
         work_dir = output_dir / "work"
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -736,7 +982,7 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
         _update_job(step=2, step_name=STEP_NAMES_BOTH[2], step_progress=0.0,
                      step_started_at=_now_iso())
         _save_job_json()
-        instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs")
+        instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs", device=device)
         _convert_to_mp3(instrumental_wav, instrumental_mp3)
         _convert_to_mp3(vocals_wav, vocals_mp3)
         instrumental_wav.unlink(missing_ok=True)
@@ -757,12 +1003,58 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
         _update_job(step=3, step_name=STEP_NAMES_BOTH[3], step_progress=0.0,
                      step_started_at=_now_iso())
         _save_job_json()
-        segments = transcribe(vocals_mp3, device=device)
+        segments, detected_lang = transcribe(vocals_mp3, device=device)
+        _update_job(language_detected=detected_lang)
+        _save_job_json()
         words_list = []
         for seg in segments:
             for w in seg.words:
                 words_list.append({"text": w.text, "start": w.start, "end": w.end})
+
+        # Correct lyrics using LLM knowledge of the song
+        if _load_settings().get("feature_lyrics_correction", True):
+            _update_job(step_name="Correcting lyrics", step_progress=0.8)
+            _save_job_json()
+            try:
+                from karaoke.correct_lyrics import correct_lyrics
+                with _lock:
+                    job_title = _job.get("title") if _job else None
+                    job_channel = _job.get("channel") if _job else None
+                correction = correct_lyrics(words_list, title=job_title,
+                                            artist=job_channel)
+                words_list = correction["words"]
+                if correction.get("identified_artist"):
+                    _update_job(artist=correction["identified_artist"])
+                    _save_job_json()
+                    try:
+                        _db = SessionLocal()
+                        _meta = _db.query(JobMetadata).filter(
+                            JobMetadata.job_id == _job["id"]).first()
+                        if not _meta:
+                            _meta = JobMetadata(job_id=_job["id"])
+                            _db.add(_meta)
+                        if not _meta.artist:
+                            _meta.artist = correction["identified_artist"]
+                        _db.commit()
+                        _db.close()
+                    except Exception:
+                        pass
+            except Exception:
+                pass  # keep original transcription on failure
+
         (output_dir / "lyrics.json").write_text(json.dumps(words_list))
+
+        # Rebuild segments from corrected words
+        from karaoke.transcribe import Segment, Word as TWord
+        corrected_words = [TWord(text=w["text"], start=w["start"], end=w["end"])
+                           for w in words_list]
+        if corrected_words:
+            segments = [Segment(start=corrected_words[0].start,
+                                end=corrected_words[-1].end,
+                                words=corrected_words)]
+        else:
+            segments = []
+
         step_durations["3"] = time.monotonic() - t0
         with _lock:
             artifacts = dict(_job.get("artifacts", {}))
@@ -801,7 +1093,7 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
         # --- Step 6: Translate subtitles ---
         if _check_pause(): return
         srt_artifacts = []
-        if languages:
+        if languages and _load_settings().get("feature_translation", True):
             t0 = time.monotonic()
             # Build source SRT from transcription for Claude translation
             source_srt_path = output_dir / "subtitles_source.srt"
@@ -858,6 +1150,98 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
 # Startup recovery
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
+def _run_migrations() -> None:
+    """Add missing columns incrementally."""
+    from sqlalchemy import inspect, text
+    from database import engine
+    insp = inspect(engine)
+
+    # --- Invitation table: token, expires_at, accepted_by_id ---
+    inv_cols = {c["name"] for c in insp.get_columns("invitations")}
+    needs_invite_backfill = "token" not in inv_cols
+    if needs_invite_backfill:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE invitations ADD COLUMN token VARCHAR(64)"))
+            conn.execute(text("ALTER TABLE invitations ADD COLUMN expires_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE invitations ADD COLUMN accepted_by_id UUID REFERENCES users(id)"))
+        # Backfill in a separate transaction (no lock conflict)
+        import secrets as _sec
+        from datetime import timedelta
+        db = SessionLocal()
+        from models import Invitation as InvModel
+        for inv in db.query(InvModel).all():
+            inv.token = _sec.token_urlsafe(32)
+            inv.expires_at = inv.created_at + timedelta(days=7)
+        db.commit()
+        db.close()
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE invitations ALTER COLUMN token SET NOT NULL"))
+            conn.execute(text("ALTER TABLE invitations ALTER COLUMN expires_at SET NOT NULL"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_invitations_token ON invitations (token)"))
+
+    # --- User table: invited_by_id ---
+    user_cols = {c["name"] for c in insp.get_columns("users")}
+    if "invited_by_id" not in user_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN invited_by_id UUID REFERENCES users(id)"))
+
+    # --- UserPermissions table ---
+    perm_cols = {c["name"] for c in insp.get_columns("user_permissions")}
+    with engine.begin() as conn:
+        if "max_invitations" not in perm_cols:
+            conn.execute(text("ALTER TABLE user_permissions ADD COLUMN max_invitations INTEGER NOT NULL DEFAULT 5"))
+        if "can_request_songs" not in perm_cols:
+            conn.execute(text("ALTER TABLE user_permissions ADD COLUMN can_request_songs BOOLEAN NOT NULL DEFAULT TRUE"))
+
+    # --- JobMetadata: year column ---
+    if "job_metadata" in set(insp.get_table_names()):
+        jm_cols = {c["name"] for c in insp.get_columns("job_metadata")}
+        if "year" not in jm_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE job_metadata ADD COLUMN year VARCHAR(10)"))
+            # Backfill year from existing analysis_song_info, e.g. "Alone by Heart (1987)"
+            import re as _re
+            _db = SessionLocal()
+            for m in _db.query(JobMetadata).filter(JobMetadata.analysis_song_info.isnot(None)).all():
+                match = _re.search(r"\((\d{4})\)", m.analysis_song_info or "")
+                if match:
+                    m.year = match.group(1)
+            _db.commit()
+            _db.close()
+
+    # --- Wishlist tables ---
+    tables = set(insp.get_table_names())
+    if "wishlist_items" not in tables:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE wishlist_items (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    url VARCHAR(512),
+                    title VARCHAR(512) NOT NULL,
+                    artist VARCHAR(255),
+                    thumbnail VARCHAR(512),
+                    note TEXT,
+                    status VARCHAR(20) NOT NULL DEFAULT 'open',
+                    fulfilled_by_job_id VARCHAR(255),
+                    created_at TIMESTAMPTZ DEFAULT now()
+                )
+            """))
+    if "wishlist_votes" not in tables:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE wishlist_votes (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    wishlist_item_id UUID NOT NULL REFERENCES wishlist_items(id) ON DELETE CASCADE,
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    CONSTRAINT uq_user_wishlist_vote UNIQUE (user_id, wishlist_item_id)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_wishlist_votes_item ON wishlist_votes (wishlist_item_id)"))
+
+
+@app.on_event("startup")
 def _recover_jobs() -> None:
     global _job
     # Load historical timing data and queue
@@ -865,7 +1249,51 @@ def _recover_jobs() -> None:
     _load_queue()
     if not JOBS_DIR.exists():
         return
-    # Find the most recent job directory
+
+    # Build set of IDs already in the queue
+    queue_ids = {item["id"] for item in _queue}
+
+    # Scan all job directories for failed or interrupted jobs
+    for d in JOBS_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        job_json = d / "job.json"
+        if not job_json.exists():
+            continue
+        try:
+            data = json.loads(job_json.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        job_id = data.get("id", d.name)
+
+        # If it was running when server died, mark as failed
+        if data.get("status") == "running":
+            data["status"] = "failed"
+            data["error"] = "Server restarted during processing"
+            data["finished_at"] = _now_iso()
+            job_json.write_text(json.dumps(data, default=str))
+
+        # Add any failed job to the queue so it retries automatically
+        if data.get("status") == "failed" and job_id not in queue_ids:
+            _queue.append({
+                "id": job_id,
+                "url": data.get("url", ""),
+                "mode": data.get("mode", "karaoke"),
+                "languages": data.get("languages", []),
+                "title": data.get("title", "Unknown"),
+                "thumbnail": data.get("thumbnail"),
+                "channel": data.get("channel"),
+                "upload_date": data.get("upload_date"),
+                "categories": data.get("categories", []),
+                "tags": data.get("tags", []),
+                "status": "queued",
+                "added_by": data.get("added_by"),
+                "was_failed": True,
+            })
+            queue_ids.add(job_id)
+
+    # Set the most recent job as current (for status display)
     job_dirs = sorted(JOBS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
     for d in job_dirs:
         job_json = d / "job.json"
@@ -875,19 +1303,14 @@ def _recover_jobs() -> None:
             data = json.loads(job_json.read_text())
         except (json.JSONDecodeError, OSError):
             continue
-        # If it was running when server died, mark as failed
-        if data.get("status") == "running":
-            data["status"] = "failed"
-            data["error"] = "Server restarted during processing"
-            data["finished_at"] = _now_iso()
-            job_json.write_text(json.dumps(data, default=str))
         _job = data
-        break  # only restore the most recent
+        break
 
-    # Reset any "processing" queue items to "queued" (server restarted mid-job)
+    # Reset any non-queued items back to "queued" (server restarted mid-job)
     for item in _queue:
-        if item.get("status") == "processing":
+        if item.get("status") in ("processing", "failed"):
             item["status"] = "queued"
+            item["was_failed"] = True
     _save_queue()
 
     # Auto-start queued items
@@ -918,6 +1341,7 @@ class RegisterRequest(BaseModel):
     email: str
     name: str
     password: str
+    invite_token: str
 
 
 class LoginRequest(BaseModel):
@@ -942,11 +1366,32 @@ def _set_auth_cookie(response: Response, user: User) -> None:
     )
 
 
+def _validate_invite_token(db: Session, token: str) -> Invitation:
+    """Validate an invite token. Returns the Invitation or raises HTTPException."""
+    inv = db.query(Invitation).filter(Invitation.token == token).first()
+    if not inv:
+        raise HTTPException(400, "Invalid invitation token")
+    if inv.status != "pending":
+        raise HTTPException(400, "Invitation already used")
+    if not inv.is_valid():
+        raise HTTPException(400, "Invitation has expired")
+    return inv
+
+
 @app.post("/api/auth/register")
 def register(req: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+    invitation = _validate_invite_token(db, req.invite_token)
+    if invitation.email.lower() != req.email.lower():
+        raise HTTPException(400, "This invitation was sent to a different email address")
     if db.query(User).filter(User.email == req.email.lower()).first():
         raise HTTPException(400, "Email already registered")
-    user = create_user_with_permissions(db, email=req.email, name=req.name, password=req.password)
+    user = create_user_with_permissions(
+        db, email=req.email, name=req.name, password=req.password,
+        invited_by_id=str(invitation.inviter_id),
+    )
+    invitation.status = "accepted"
+    invitation.accepted_by_id = user.id
+    db.commit()
     _set_auth_cookie(response, user)
     return {"user": user.to_dict()}
 
@@ -964,31 +1409,37 @@ def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
 
 
 @app.get("/api/auth/google")
-def google_login():
+def google_login(invite: str | None = None):
     """Redirect to Google OAuth. Requires GOOGLE_CLIENT_ID to be set."""
     import os
+    from urllib.parse import quote
     client_id = os.getenv("GOOGLE_CLIENT_ID", "")
     if not client_id:
         raise HTTPException(501, "Google OAuth not configured")
     redirect_uri = "/api/auth/google/callback"
     scope = "openid email profile"
+    state = quote(invite or "", safe="")
     url = (
         f"https://accounts.google.com/o/oauth2/v2/auth?"
         f"client_id={client_id}&response_type=code&scope={scope}"
         f"&redirect_uri={redirect_uri}&access_type=offline"
+        f"&state={state}"
     )
     return RedirectResponse(url)
 
 
 @app.get("/api/auth/google/callback")
-def google_callback(code: str, response: Response, db: Session = Depends(get_db)):
+def google_callback(code: str, state: str = "", db: Session = Depends(get_db)):
     """Handle Google OAuth callback."""
     import os
     import httpx
+    from urllib.parse import unquote
     client_id = os.getenv("GOOGLE_CLIENT_ID", "")
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "")
     if not client_id or not client_secret:
         raise HTTPException(501, "Google OAuth not configured")
+
+    invite_token = unquote(state) if state else ""
 
     # Exchange code for tokens
     token_resp = httpx.post("https://oauth2.googleapis.com/token", data={
@@ -1014,13 +1465,25 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
     if not user:
         user = db.query(User).filter(User.email == info["email"].lower()).first()
         if user:
+            # Existing user — link Google account, no invite needed
             user.google_id = info["id"]
             user.picture_url = info.get("picture")
         else:
+            # New user — require valid invite token
+            if not invite_token:
+                return RedirectResponse("/login?error=invite_required")
+            inv = db.query(Invitation).filter(Invitation.token == invite_token).first()
+            if not inv or not inv.is_valid():
+                return RedirectResponse("/login?error=invalid_invite")
+            if inv.email.lower() != info["email"].lower():
+                return RedirectResponse("/login?error=email_mismatch")
             user = create_user_with_permissions(
                 db, email=info["email"], name=info.get("name", ""),
                 google_id=info["id"], picture_url=info.get("picture"),
+                invited_by_id=str(inv.inviter_id),
             )
+            inv.status = "accepted"
+            inv.accepted_by_id = user.id
     from datetime import datetime, timezone as tz
     user.last_login = datetime.now(tz.utc)
     db.commit()
@@ -1115,11 +1578,17 @@ def _slugify(text: str, max_len: int = 60) -> str:
 
 
 @app.post("/api/jobs")
-def create_job(req: JobRequest):
+def create_job(req: JobRequest, user: User | None = Depends(get_optional_user)):
     global _job
     with _lock:
         if _job is not None and _job["status"] == "running":
             raise HTTPException(409, "A job is already running")
+
+    settings = _load_settings()
+    allowed = settings.get("allowed_modes", list(VALID_MODES))
+    mode = req.mode if req.mode in VALID_MODES else "karaoke"
+    if mode not in allowed:
+        raise HTTPException(403, f"Production mode '{mode}' is not enabled")
 
     # Fetch metadata first so we can use the title as folder name
     meta = {}
@@ -1134,8 +1603,6 @@ def create_job(req: JobRequest):
     job_id = f"{slug}-{secrets.token_hex(2)}"
     output_dir = JOBS_DIR / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    mode = req.mode if req.mode in VALID_MODES else "karaoke"
     # Support both old single language and new multi-language
     languages = req.languages[:3] if req.languages else (
         [req.language] if req.language else []
@@ -1154,6 +1621,8 @@ def create_job(req: JobRequest):
         "upload_date": meta.get("upload_date"),
         "categories": meta.get("categories", []),
         "tags": meta.get("tags", []),
+        "added_by": user.name.split()[0] if user and user.name else None,
+        "added_by_id": str(user.id) if user else None,
         "status": "running",
         "step": 0,
         "step_name": "Starting",
@@ -1207,12 +1676,57 @@ class QueueRequest(BaseModel):
 
 
 @app.post("/api/queue")
-def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_user)):
+def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_user),
+                 db: Session = Depends(get_db)):
     """Add an item to the production queue."""
+    settings = _load_settings()
+    allowed = settings.get("allowed_modes", list(VALID_MODES))
     mode = req.mode if req.mode in VALID_MODES else "karaoke"
+    if mode not in allowed:
+        raise HTTPException(403, f"Production mode '{mode}' is not enabled")
+
     languages = req.languages[:3] if req.languages else []
     if mode not in ("subtitled", "both"):
         languages = []
+
+    # Enforce per-user limits (admins bypass)
+    if user and not is_admin(user) and user.permissions:
+        p = user.permissions
+        # Queue length limit
+        with _lock:
+            user_queued = sum(1 for q in _queue if q.get("added_by_id") == str(user.id))
+        if user_queued >= p.max_queue_length:
+            raise HTTPException(429, f"Queue limit reached ({p.max_queue_length})")
+        # Daily production limits
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        user_today_karaoke = 0
+        user_today_subtitled = 0
+        for d in JOBS_DIR.iterdir():
+            if not d.is_dir():
+                continue
+            jf = d / "job.json"
+            if not jf.exists():
+                continue
+            try:
+                jdata = json.loads(jf.read_text())
+                if jdata.get("added_by_id") != str(user.id):
+                    continue
+                if jdata.get("status") != "done":
+                    continue
+                finished = jdata.get("finished_at", "")
+                if not finished.startswith(today_str):
+                    continue
+                jmode = jdata.get("mode", "karaoke")
+                if jmode == "karaoke":
+                    user_today_karaoke += 1
+                elif jmode in ("subtitled", "both"):
+                    user_today_subtitled += 1
+            except (json.JSONDecodeError, OSError):
+                continue
+        if mode == "karaoke" and user_today_karaoke >= p.max_karaoke_per_day:
+            raise HTTPException(429, f"Daily karaoke limit reached ({p.max_karaoke_per_day})")
+        if mode in ("subtitled", "both") and user_today_subtitled >= p.max_subtitled_per_day:
+            raise HTTPException(429, f"Daily subtitled limit reached ({p.max_subtitled_per_day})")
 
     # Fetch metadata
     meta = {}
@@ -1238,6 +1752,7 @@ def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_use
         "tags": meta.get("tags", []),
         "status": "queued",
         "added_by": user.name.split()[0] if user and user.name else "Anonymous",
+        "added_by_id": str(user.id) if user else None,
     }
 
     with _lock:
@@ -1263,14 +1778,20 @@ def get_queue():
                 entry["step_name"] = _job.get("step_name", "")
                 entry["step_progress"] = _job.get("step_progress", 0)
                 entry["status"] = "processing"
+                entry["pause_requested"] = _pause_requested
             queue_with_progress.append(entry)
-        return {"queue": queue_with_progress, "job": dict(_job) if _job else None}
+        return {
+            "queue": queue_with_progress,
+            "job": dict(_job) if _job else None,
+            "disk_quota_exceeded": _disk_quota_exceeded,
+        }
 
 
 @app.delete("/api/queue/{item_id}")
 def remove_from_queue(item_id: str):
-    """Remove an item from the queue. If processing, request cancellation."""
-    global _cancel_requested
+    """Remove an item from the queue. If processing, request cancellation.
+    For failed jobs, also cleans up intermediate files on disk."""
+    global _cancel_requested, _job
     with _lock:
         item = next((i for i in _queue if i["id"] == item_id), None)
         if not item:
@@ -1284,10 +1805,28 @@ def remove_from_queue(item_id: str):
         # Don't remove from queue here — _check_pause will handle cleanup
         return {"deleted": True, "cancelling": True, "queue": _queue}
 
-    # Not processing — just remove immediately
+    # Not processing — remove from queue and clean up files if failed
     with _lock:
         _queue[:] = [i for i in _queue if i["id"] != item_id]
     _save_queue()
+
+    # Clean up job directory for failed/incomplete jobs
+    job_dir = JOBS_DIR / item_id
+    if job_dir.exists():
+        job_json = job_dir / "job.json"
+        if job_json.exists():
+            try:
+                data = json.loads(job_json.read_text())
+            except (json.JSONDecodeError, OSError):
+                data = {}
+            # Only clean up if not a completed job (those live in the library)
+            if data.get("status") != "done":
+                shutil.rmtree(job_dir, ignore_errors=True)
+                # Clear current job reference if it was the deleted one
+                with _lock:
+                    if _job is not None and _job.get("id") == item_id:
+                        _job = None
+
     return {"deleted": True, "queue": _queue}
 
 
@@ -1321,23 +1860,26 @@ def start_queue():
 
 @app.post("/api/queue/{item_id}/pause")
 def pause_queue_item(item_id: str):
-    """Request pause of the currently processing item."""
+    """Toggle pause request for the currently processing item."""
     global _pause_requested
     with _lock:
         if not _job or _job.get("id") != item_id or _job.get("status") != "running":
             raise HTTPException(400, "Item is not currently processing")
-    _pause_requested = True
-    return {"paused": True}
+    # Toggle: if already requesting pause, cancel it
+    _pause_requested = not _pause_requested
+    return {"pause_requested": _pause_requested}
 
 
 @app.post("/api/queue/{item_id}/resume")
 def resume_queue_item(item_id: str):
-    """Resume a paused queue item."""
-    global _pause_requested
+    """Resume a paused or failed queue item."""
+    global _pause_requested, _job
     with _lock:
         item = next((i for i in _queue if i["id"] == item_id), None)
         if not item:
             raise HTTPException(404, "Item not found")
+        if _job is not None and _job.get("status") == "running":
+            raise HTTPException(409, "A job is already running")
     _pause_requested = False
 
     # Find the job data and resume it
@@ -1360,7 +1902,6 @@ def resume_queue_item(item_id: str):
         item["status"] = "processing"
     _save_queue()
 
-    global _job
     _job = {
         "id": item_id,
         "url": data.get("url", ""),
@@ -1493,6 +2034,10 @@ def get_library(user: User | None = Depends(get_optional_user),
     ).group_by(Comment.job_id).all()
     comment_counts: dict[str, int] = {job_id: count for job_id, count in comment_rows}
 
+    # Preload job metadata from DB
+    meta_rows = db.query(JobMetadata).all()
+    meta_map: dict[str, JobMetadata] = {m.job_id: m for m in meta_rows}
+
     for d in JOBS_DIR.iterdir():
         if not d.is_dir():
             continue
@@ -1507,9 +2052,11 @@ def get_library(user: User | None = Depends(get_optional_user),
             continue
         job_id = data.get("id", d.name)
         votes = vote_map.get(job_id, {"upvotes": 0, "downvotes": 0})
+        meta = meta_map.get(job_id)
         items.append({
             "id": job_id,
-            "title": data.get("title", "Unknown"),
+            "title": (meta.title if meta and meta.title else None) or data.get("title", "Unknown"),
+            "artist": (meta.artist if meta and meta.artist else None) or data.get("artist", ""),
             "url": data.get("url"),
             "mode": data.get("mode", "karaoke"),
             "languages": data.get("languages") or ([data["language"]] if data.get("language") else []),
@@ -1520,6 +2067,12 @@ def get_library(user: User | None = Depends(get_optional_user),
             "tags": data.get("tags", []),
             "finished_at": data.get("finished_at"),
             "audio_duration": data.get("audio_duration"),
+            "year": (meta.year if meta and meta.year else None),
+            "language": data.get("language_detected"),
+            "output_dir": str(d),
+            "added_by": data.get("added_by"),
+            "added_by_id": data.get("added_by_id"),
+            "view_count": meta.view_count if meta else 0,
             "upvotes": votes["upvotes"],
             "downvotes": votes["downvotes"],
             "user_vote": user_votes.get(job_id, 0),
@@ -1603,12 +2156,205 @@ def stream_vocals(job_id: str):
     return FileResponse(path, media_type="audio/mpeg")
 
 
+@app.post("/api/jobs/{job_id}/view")
+def record_view(job_id: str, db: Session = Depends(get_db)):
+    """Increment the view count for a job."""
+    meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+    if not meta:
+        meta = JobMetadata(job_id=job_id, view_count=1)
+        db.add(meta)
+    else:
+        meta.view_count = (meta.view_count or 0) + 1
+    db.commit()
+    return {"view_count": meta.view_count}
+
+
 @app.get("/api/jobs/{job_id}/lyrics")
 def get_lyrics(job_id: str):
     path = JOBS_DIR / job_id / "lyrics.json"
     if not path.exists():
         raise HTTPException(404, "Lyrics not found")
     return json.loads(path.read_text())
+
+
+PROMPTS_PATH = JOBS_DIR / "prompts.json"
+SETTINGS_PATH = JOBS_DIR / "settings.json"
+
+# Default settings
+_DEFAULT_SETTINGS = {
+    "default_max_karaoke_per_day": 5,
+    "default_max_subtitled_per_day": 15,
+    "default_max_queue_length": 10,
+    "default_can_download_karaoke": True,
+    "default_can_download_instrumental": True,
+    "default_can_download_vocals": True,
+    "default_can_delete_library": False,
+    "default_can_share_library": True,
+    "feature_lyrics_correction": True,
+    "feature_analysis": True,
+    "feature_translation": True,
+    "allowed_modes": ["karaoke", "subtitled", "both"],
+    "feature_wishlist": True,
+    "default_can_request_songs": True,
+    "max_disk_space_mb": 0,
+}
+
+
+def _load_settings() -> dict:
+    """Load admin settings from disk."""
+    if SETTINGS_PATH.exists():
+        try:
+            stored = json.loads(SETTINGS_PATH.read_text())
+            return {**_DEFAULT_SETTINGS, **stored}
+        except (json.JSONDecodeError, OSError):
+            pass
+    return dict(_DEFAULT_SETTINGS)
+
+
+def _save_settings(settings: dict) -> None:
+    """Save admin settings to disk."""
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    SETTINGS_PATH.write_text(json.dumps(settings, indent=2))
+
+
+def _load_prompts() -> dict:
+    """Load custom prompts from disk."""
+    if PROMPTS_PATH.exists():
+        try:
+            return json.loads(PROMPTS_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_prompts(prompts: dict) -> None:
+    """Save custom prompts to disk."""
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    PROMPTS_PATH.write_text(json.dumps(prompts, indent=2))
+
+
+@app.get("/api/admin/prompts")
+def get_prompts(user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    from karaoke.analyze_lyrics import DEFAULT_ANALYSIS_PROMPT
+    prompts = _load_prompts()
+    return {
+        "analysis_prompt": prompts.get("analysis_prompt", ""),
+        "analysis_prompt_default": DEFAULT_ANALYSIS_PROMPT,
+    }
+
+
+@app.get("/api/settings/public")
+def get_public_settings():
+    """Return non-sensitive settings for the client UI."""
+    s = _load_settings()
+    return {
+        "allowed_modes": s.get("allowed_modes", ["karaoke", "subtitled", "both"]),
+        "feature_translation": s.get("feature_translation", True),
+        "feature_analysis": s.get("feature_analysis", True),
+        "feature_wishlist": s.get("feature_wishlist", True),
+    }
+
+
+@app.get("/api/admin/settings")
+def get_settings(user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    return _load_settings()
+
+
+@app.post("/api/admin/settings")
+def save_settings(req: dict, user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    settings = _load_settings()
+    for key in _DEFAULT_SETTINGS:
+        if key in req:
+            settings[key] = req[key]
+    _save_settings(settings)
+    return {"saved": True}
+
+
+@app.post("/api/admin/prompts")
+def save_prompts(req: dict, user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    prompts = _load_prompts()
+    if "analysis_prompt" in req:
+        prompts["analysis_prompt"] = req["analysis_prompt"]
+    _save_prompts(prompts)
+    return {"saved": True}
+
+
+@app.post("/api/jobs/{job_id}/analysis/rerun")
+def rerun_analysis(job_id: str, db: Session = Depends(get_db)):
+    """Clear cached analysis so it regenerates on next fetch."""
+    meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+    if meta:
+        meta.analysis_text = None
+        meta.analysis_song_info = None
+        db.commit()
+    return {"cleared": True}
+
+
+@app.get("/api/jobs/{job_id}/analysis")
+def get_analysis(job_id: str, db: Session = Depends(get_db)):
+    """Return cached or generate line-by-line lyric analysis."""
+    # Check DB cache first
+    meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+    if meta and meta.analysis_text and len(meta.analysis_text) > 10:
+        return {"song_info": meta.analysis_song_info or "", "analysis": meta.analysis_text}
+
+    # Need lyrics to analyze
+    job_dir = JOBS_DIR / job_id
+    lyrics_path = job_dir / "lyrics.json"
+    if not lyrics_path.exists():
+        raise HTTPException(404, "Lyrics not found")
+
+    # Get title/artist from DB first, fall back to job.json
+    title = meta.title if meta else None
+    artist = meta.artist if meta else None
+    if not title or not artist:
+        job_json = job_dir / "job.json"
+        if job_json.exists():
+            try:
+                job_data = json.loads(job_json.read_text())
+                title = title or job_data.get("title")
+                artist = artist or job_data.get("artist") or job_data.get("channel")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    # Build plain text lyrics from word-level data
+    words = json.loads(lyrics_path.read_text())
+    lyrics_text = " ".join(w["text"] for w in words)
+
+    # Load custom prompt if set
+    prompts = _load_prompts()
+    custom_prompt = prompts.get("analysis_prompt") or None
+
+    from karaoke.analyze_lyrics import analyze_lyrics
+    result = analyze_lyrics(lyrics_text, title=title, artist=artist,
+                            custom_prompt=custom_prompt)
+
+    # Save to DB
+    if not meta:
+        meta = JobMetadata(job_id=job_id)
+        db.add(meta)
+    analysis_text = result.get("analysis", "")
+    meta.analysis_text = analysis_text if analysis_text else None
+    meta.analysis_song_info = result.get("song_info", "") or None
+
+    # Save identified artist if not already set
+    if not meta.artist and result.get("song_info"):
+        info = result["song_info"]
+        if " by " in info:
+            parts = info.rsplit(" by ", 1)
+            if len(parts) == 2:
+                meta.artist = parts[1].strip().strip('"')
+
+    db.commit()
+    return result
 
 
 @app.get("/api/jobs/{job_id}/subtitles/{lang_code}")
@@ -1644,10 +2390,65 @@ def get_subtitles(job_id: str):
     raise HTTPException(404, "Subtitles not found")
 
 
+class UpdateJobRequest(BaseModel):
+    title: str | None = None
+    artist: str | None = None
+    year: str | None = None
+
+
+@app.patch("/api/jobs/{job_id}")
+def update_job_metadata(job_id: str, req: UpdateJobRequest,
+                        user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Update editable job metadata (title, artist)."""
+    job_dir = JOBS_DIR / job_id
+    job_json = job_dir / "job.json"
+    if not job_json.exists():
+        raise HTTPException(404, "Job not found")
+
+    # Update DB
+    meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+    if not meta:
+        meta = JobMetadata(job_id=job_id)
+        db.add(meta)
+    if req.title is not None:
+        meta.title = req.title
+    if req.artist is not None:
+        meta.artist = req.artist
+    if req.year is not None:
+        meta.year = req.year
+    db.commit()
+
+    # Also update job.json (pipeline reads it) and in-memory job
+    try:
+        data = json.loads(job_json.read_text())
+        if req.title is not None:
+            data["title"] = req.title
+        if req.artist is not None:
+            data["artist"] = req.artist
+        job_json.write_text(json.dumps(data, default=str))
+    except (json.JSONDecodeError, OSError):
+        pass
+
+    with _lock:
+        if _job is not None and _job.get("id") == job_id:
+            if req.title is not None:
+                _job["title"] = req.title
+            if req.artist is not None:
+                _job["artist"] = req.artist
+
+    return {"title": meta.title, "artist": meta.artist, "year": meta.year}
+
+
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: str):
+def delete_job(job_id: str, user: User = Depends(get_current_user)):
     """Delete a job and all its files from disk."""
     global _job
+
+    # Enforce delete permission (admins bypass)
+    if not is_admin(user) and user.permissions and not user.permissions.can_delete_library:
+        raise HTTPException(403, "You don't have permission to delete songs")
+
     job_dir = JOBS_DIR / job_id
     if not job_dir.exists() or not job_dir.is_dir():
         raise HTTPException(404, "Job not found")
@@ -1668,12 +2469,24 @@ def delete_job(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/download/{filename}")
-def download_file(job_id: str, filename: str):
+def download_file(job_id: str, filename: str,
+                  user: User | None = Depends(get_optional_user)):
     # Allow specific files + subtitles_*.srt pattern
     static_allowed = {"karaoke.mp4", "instrumental.mp3", "vocals.mp3", "subtitles.srt"}
     is_subtitle = bool(re.match(r"^subtitles_[a-z]{2,3}(-[A-Za-z]{2,4})?\.srt$", filename))
     if filename not in static_allowed and not is_subtitle:
         raise HTTPException(400, "Invalid file")
+
+    # Enforce download permissions (admins bypass)
+    if user and not is_admin(user) and user.permissions:
+        p = user.permissions
+        if filename == "karaoke.mp4" and not p.can_download_karaoke:
+            raise HTTPException(403, "You don't have permission to download karaoke files")
+        if filename == "instrumental.mp3" and not p.can_download_instrumental:
+            raise HTTPException(403, "You don't have permission to download instrumental files")
+        if filename == "vocals.mp3" and not p.can_download_vocals:
+            raise HTTPException(403, "You don't have permission to download vocal files")
+
     path = JOBS_DIR / job_id / filename
     if not path.exists():
         raise HTTPException(404, "File not found")
@@ -1756,6 +2569,7 @@ def admin_list_users(admin: User = Depends(require_admin), db: Session = Depends
     for u in users:
         data = u.to_dict()
         data["permissions"] = u.permissions.to_dict() if u.permissions else {}
+        data["invites_sent"] = db.query(Invitation).filter(Invitation.inviter_id == u.id).count()
         result.append(data)
     return {"users": result}
 
@@ -1769,6 +2583,8 @@ class UpdatePermissionsRequest(BaseModel):
     can_download_vocals: bool | None = None
     can_delete_library: bool | None = None
     can_share_library: bool | None = None
+    max_invitations: int | None = None  # 0 = unlimited
+    can_request_songs: bool | None = None
 
 
 @app.put("/api/admin/users/{user_id}/permissions")
@@ -1844,6 +2660,30 @@ def admin_get_screenshot(feedback_id: str, admin: User = Depends(require_admin),
     if not p.exists():
         raise HTTPException(404, "Screenshot file missing")
     return FileResponse(p)
+
+
+class AdminCreateUserRequest(BaseModel):
+    email: str
+    name: str
+    password: str
+    role: str = "user"
+
+
+@app.post("/api/admin/users")
+def admin_create_user(req: AdminCreateUserRequest, admin: User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    if req.role not in ("user", "admin"):
+        raise HTTPException(400, "Invalid role")
+    if not req.email or not req.name or not req.password:
+        raise HTTPException(400, "All fields are required")
+    if db.query(User).filter(User.email == req.email.lower()).first():
+        raise HTTPException(400, "Email already registered")
+    user = create_user_with_permissions(db, email=req.email, name=req.name, password=req.password)
+    if req.role != "user":
+        user.role = req.role
+        db.commit()
+        db.refresh(user)
+    return {"user": user.to_dict()}
 
 
 @app.delete("/api/admin/users/{user_id}")
@@ -2000,6 +2840,161 @@ def _get_vote_summary(job_id: str, user_id, db: Session) -> dict:
         if existing:
             user_vote = existing.value
     return {"job_id": job_id, "upvotes": upvotes, "downvotes": downvotes, "user_vote": user_vote}
+
+
+# ---------------------------------------------------------------------------
+# Wishlist API
+# ---------------------------------------------------------------------------
+
+class WishlistCreateRequest(BaseModel):
+    url: str | None = None
+    title: str | None = None
+    artist: str | None = None
+    note: str | None = None
+
+
+@app.get("/api/wishlist")
+def list_wishlist(user: User | None = Depends(get_optional_user),
+                  db: Session = Depends(get_db)):
+    """List open wishlist items with vote counts, sorted by votes desc."""
+    if not _load_settings().get("feature_wishlist", True):
+        raise HTTPException(403, "Wishlist feature is disabled")
+    from sqlalchemy import func
+    items = db.query(WishlistItem).filter(WishlistItem.status == "open").all()
+    result = []
+    for item in items:
+        vote_count = db.query(func.count(WishlistVote.id)).filter(
+            WishlistVote.wishlist_item_id == item.id).scalar() or 0
+        user_voted = False
+        if user:
+            user_voted = db.query(WishlistVote).filter(
+                WishlistVote.user_id == user.id,
+                WishlistVote.wishlist_item_id == item.id).first() is not None
+        d = item.to_dict()
+        d["vote_count"] = vote_count
+        d["user_voted"] = user_voted
+        result.append(d)
+    result.sort(key=lambda x: x["vote_count"], reverse=True)
+    return {"items": result}
+
+
+@app.post("/api/wishlist")
+def create_wishlist_item(req: WishlistCreateRequest,
+                         user: User = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """Create a new song request."""
+    if not _load_settings().get("feature_wishlist", True):
+        raise HTTPException(403, "Wishlist feature is disabled")
+    if not is_admin(user) and user.permissions and not user.permissions.can_request_songs:
+        raise HTTPException(403, "You don't have permission to request songs")
+
+    title = (req.title or "").strip()
+    url = (req.url or "").strip() or None
+    artist = (req.artist or "").strip() or None
+    note = (req.note or "").strip() or None
+    thumbnail = None
+
+    if url:
+        try:
+            meta = fetch_metadata(url)
+            title = title or meta.get("title", "Unknown")
+            artist = artist or meta.get("channel")
+            thumbnail = meta.get("thumbnail")
+        except Exception:
+            pass
+
+    if not title:
+        raise HTTPException(400, "Title is required")
+
+    item = WishlistItem(
+        user_id=user.id, url=url, title=title, artist=artist,
+        thumbnail=thumbnail, note=note,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    d = item.to_dict()
+    d["vote_count"] = 0
+    d["user_voted"] = False
+    return d
+
+
+@app.post("/api/wishlist/{item_id}/vote")
+def toggle_wishlist_vote(item_id: str, user: User = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """Toggle upvote on a wishlist item."""
+    item = db.query(WishlistItem).filter(WishlistItem.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Wishlist item not found")
+    existing = db.query(WishlistVote).filter(
+        WishlistVote.user_id == user.id,
+        WishlistVote.wishlist_item_id == item.id).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        voted = False
+    else:
+        db.add(WishlistVote(user_id=user.id, wishlist_item_id=item.id))
+        db.commit()
+        voted = True
+    from sqlalchemy import func
+    count = db.query(func.count(WishlistVote.id)).filter(
+        WishlistVote.wishlist_item_id == item.id).scalar() or 0
+    return {"item_id": str(item.id), "vote_count": count, "user_voted": voted}
+
+
+@app.get("/api/wishlist/preview")
+def preview_wishlist_url(url: str, user: User = Depends(get_current_user)):
+    """Fetch YouTube metadata for preview in request form."""
+    try:
+        meta = fetch_metadata(url)
+        return {"title": meta.get("title"), "channel": meta.get("channel"),
+                "thumbnail": meta.get("thumbnail")}
+    except Exception:
+        raise HTTPException(400, "Could not fetch metadata")
+
+
+# --- Admin Wishlist ---
+
+@app.get("/api/admin/wishlist")
+def admin_list_wishlist(admin: User = Depends(require_admin),
+                        db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    items = db.query(WishlistItem).order_by(WishlistItem.created_at.desc()).all()
+    result = []
+    for item in items:
+        vote_count = db.query(func.count(WishlistVote.id)).filter(
+            WishlistVote.wishlist_item_id == item.id).scalar() or 0
+        d = item.to_dict()
+        d["vote_count"] = vote_count
+        result.append(d)
+    return {"items": result}
+
+
+@app.post("/api/admin/wishlist/{item_id}/queue")
+def admin_queue_wishlist(item_id: str, admin: User = Depends(require_admin),
+                         db: Session = Depends(get_db)):
+    """Convert a wishlist request into a production queue item."""
+    item = db.query(WishlistItem).filter(WishlistItem.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Wishlist item not found")
+    if not item.url:
+        raise HTTPException(400, "Item has no URL — cannot queue for production")
+    item.status = "queued"
+    db.commit()
+    req = QueueRequest(url=item.url, mode="karaoke", languages=[])
+    return add_to_queue(req, admin, db)
+
+
+@app.delete("/api/admin/wishlist/{item_id}")
+def admin_delete_wishlist(item_id: str, admin: User = Depends(require_admin),
+                          db: Session = Depends(get_db)):
+    item = db.query(WishlistItem).filter(WishlistItem.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Wishlist item not found")
+    db.delete(item)
+    db.commit()
+    return {"deleted": True}
 
 
 # ---------------------------------------------------------------------------
@@ -2183,8 +3178,20 @@ def send_invitations(req: InviteRequest, user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     """Send email invitations to friends."""
     import re
+    # Enforce invite limit
+    max_inv = user.permissions.max_invitations if user.permissions else 5
+    if max_inv > 0:  # 0 = unlimited
+        used = db.query(Invitation).filter(Invitation.inviter_id == user.id).count()
+        remaining = max_inv - used
+        if remaining <= 0:
+            raise HTTPException(403, "You've used all your invitations")
+    else:
+        remaining = None  # unlimited
+
     sent = []
     for email in req.emails[:10]:  # max 10 at a time
+        if remaining is not None and len(sent) >= remaining:
+            break
         email = email.strip().lower()
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
             continue
@@ -2199,16 +3206,56 @@ def send_invitations(req: InviteRequest, user: User = Depends(get_current_user),
             continue
         inv = Invitation(inviter_id=user.id, email=email)
         db.add(inv)
-        sent.append(email)
+        emailed = send_invite_email(email, user.name or "A friend", inv.token)
+        sent.append({"email": email, "token": inv.token, "link": f"/login?invite={inv.token}", "emailed": emailed})
     db.commit()
-    return {"sent": sent, "count": len(sent)}
+    total_used = db.query(Invitation).filter(Invitation.inviter_id == user.id).count()
+    return {
+        "sent": sent,
+        "count": len(sent),
+        "remaining": (max_inv - total_used) if max_inv > 0 else None,
+    }
 
 
 @app.get("/api/invitations")
 def list_invitations(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """List invitations sent by the current user."""
     invites = db.query(Invitation).filter(Invitation.inviter_id == user.id).order_by(Invitation.created_at.desc()).all()
-    return {"invitations": [i.to_dict() for i in invites]}
+    max_inv = user.permissions.max_invitations if user.permissions else 5
+    total_used = db.query(Invitation).filter(Invitation.inviter_id == user.id).count()
+    return {
+        "invitations": [i.to_dict() for i in invites],
+        "remaining": (max_inv - total_used) if max_inv > 0 else None,
+        "max_invitations": max_inv,
+    }
+
+
+@app.get("/api/invitations/{token}/validate")
+def validate_invitation(token: str, db: Session = Depends(get_db)):
+    """Public endpoint to check if an invite token is valid."""
+    inv = db.query(Invitation).filter(Invitation.token == token).first()
+    if not inv or not inv.is_valid():
+        return {"valid": False}
+    return {
+        "valid": True,
+        "email": inv.email,
+        "inviter_name": inv.inviter.name if inv.inviter else None,
+    }
+
+
+@app.get("/api/community/network")
+def community_network(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Return the invitation tree for network map visualization."""
+    users = db.query(User).all()
+    return {"nodes": [
+        {
+            "id": str(u.id),
+            "name": u.name,
+            "invited_by_id": str(u.invited_by_id) if u.invited_by_id else None,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+        }
+        for u in users
+    ]}
 
 
 # ---------------------------------------------------------------------------

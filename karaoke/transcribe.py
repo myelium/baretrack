@@ -1,10 +1,18 @@
-"""Transcribe vocals with word-level timestamps using faster-whisper."""
+"""Transcribe vocals with word-level timestamps using faster-whisper + WhisperX alignment."""
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from faster_whisper import WhisperModel
+
+log = logging.getLogger(__name__)
+
+# Shift all word timestamps earlier (seconds) to compensate for Whisper's
+# tendency to place word onsets slightly late.
+LYRICS_OFFSET = -0.3           # when WhisperX alignment succeeds
+LYRICS_OFFSET_UNALIGNED = -0.8  # when falling back to raw Whisper timestamps
 
 
 @dataclass
@@ -79,7 +87,7 @@ def _filter_hallucinations(segments: list[Segment]) -> list[Segment]:
 
 def transcribe(audio_path: Path, device: str = "cpu",
                language: str | None = None,
-               translate: bool = False) -> list[Segment]:
+               translate: bool = False) -> tuple[list[Segment], str]:
     """
     Transcribe audio using faster-whisper (CTranslate2) with word-level timestamps.
 
@@ -88,6 +96,9 @@ def transcribe(audio_path: Path, device: str = "cpu",
     Args:
         language: Optional Whisper language code (e.g. "en", "fr"). None = auto-detect.
         translate: If True, translate the audio to English (task="translate").
+
+    Returns:
+        Tuple of (segments, detected_language_code).
     """
     model = WhisperModel("large-v3", device=device, compute_type="int8")
     raw_segments, info = model.transcribe(
@@ -99,6 +110,8 @@ def transcribe(audio_path: Path, device: str = "cpu",
         hallucination_silence_threshold=3.0,
     )
 
+    detected_lang = info.language or "en"
+
     segments: list[Segment] = []
     for seg in raw_segments:
         words = [
@@ -109,4 +122,106 @@ def transcribe(audio_path: Path, device: str = "cpu",
         if words:
             segments.append(Segment(start=seg.start, end=seg.end, words=words))
 
-    return _filter_hallucinations(segments)
+    segments = _filter_hallucinations(segments)
+
+    # Refine word timestamps using WhisperX forced alignment (wav2vec2)
+    segments, aligned = _align_words(audio_path, segments, lang=detected_lang, device=device)
+
+    # Apply global offset to shift lyrics slightly earlier.
+    # Use a larger offset when alignment wasn't available (raw Whisper timestamps
+    # tend to lag more than aligned ones).
+    offset = LYRICS_OFFSET if aligned else LYRICS_OFFSET_UNALIGNED
+    if offset != 0:
+        segments = _apply_offset(segments, offset)
+
+    return segments, detected_lang
+
+
+def _align_words(audio_path: Path, segments: list[Segment],
+                 lang: str = "en", device: str = "cpu") -> tuple[list[Segment], bool]:
+    """Use WhisperX wav2vec2 alignment for tighter word-level timestamps.
+    Returns (segments, aligned) where aligned is True if alignment succeeded."""
+    try:
+        import whisperx
+
+        audio = whisperx.load_audio(str(audio_path.resolve()))
+
+        # Convert our Segment/Word dataclasses to the dict format WhisperX expects
+        whisperx_segments = []
+        for seg in segments:
+            text = " ".join(w.text for w in seg.words)
+            whisperx_segments.append({
+                "start": seg.start, "end": seg.end, "text": text,
+            })
+
+        if not whisperx_segments:
+            return segments
+
+        align_model, metadata = whisperx.load_align_model(
+            language_code=lang, device=device)
+        aligned = whisperx.align(
+            whisperx_segments, align_model, metadata, audio, device)
+
+        # Convert back to our Segment/Word dataclasses, anchoring to
+        # Whisper's original segment start times (WhisperX sometimes
+        # shifts segment boundaries later, but Whisper's onsets are better).
+        aligned_segs = aligned.get("segments", [])
+        result = []
+        for i, aseg in enumerate(aligned_segs):
+            words = []
+            for w in aseg.get("words", []):
+                if "start" in w and "end" in w and w.get("word", "").strip():
+                    words.append(Word(
+                        text=w["word"].strip(),
+                        start=w["start"],
+                        end=w["end"],
+                    ))
+            if not words:
+                continue
+
+            # Anchor: shift this segment's words so the first word aligns
+            # with the original Whisper segment start time
+            if i < len(segments):
+                whisper_start = segments[i].start
+                whisperx_start = words[0].start
+                shift = whisper_start - whisperx_start
+                if abs(shift) > 0.05:  # only shift if meaningful
+                    words = [
+                        Word(text=w.text,
+                             start=max(0, w.start + shift),
+                             end=max(0, w.end + shift))
+                        for w in words
+                    ]
+
+            result.append(Segment(
+                start=words[0].start, end=words[-1].end, words=words))
+
+        if result:
+            log.info("WhisperX alignment: %d segments, %d words",
+                     len(result), sum(len(s.words) for s in result))
+            return result, True
+
+        log.warning("WhisperX alignment produced no results, using Whisper timestamps")
+        return segments, False
+
+    except ImportError:
+        log.info("whisperx not installed, using Whisper timestamps")
+        return segments, False
+    except Exception as e:
+        log.warning("WhisperX alignment failed (%s), using Whisper timestamps", e)
+        return segments, False
+
+
+def _apply_offset(segments: list[Segment], offset: float) -> list[Segment]:
+    """Shift all timestamps by offset seconds. Clamps to >= 0."""
+    result = []
+    for seg in segments:
+        words = []
+        for w in seg.words:
+            start = max(0, w.start + offset)
+            end = max(start, w.end + offset)
+            words.append(Word(text=w.text, start=start, end=end))
+        if words:
+            result.append(Segment(
+                start=words[0].start, end=words[-1].end, words=words))
+    return result

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/png" href="/static/favicon.png">
-<title>Baretraks</title>
+<title>Baretraks - Music Without Borders</title>
 <script src="https://www.youtube.com/iframe_api"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;500;600;700&display=swap');
@@ -328,6 +328,7 @@
     display: flex;
     gap: 12px;
     margin-bottom: 12px;
+    align-items: flex-end;
   }
 
   .mode-row {
@@ -396,11 +397,11 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 4px 10px;
-    border-radius: 16px;
+    padding: 2px 8px;
+    border-radius: 12px;
     background: #3a3226;
     color: #e8d5a3;
-    font-size: 0.82rem;
+    font-size: 0.75rem;
     font-weight: 500;
     border: 1px solid #4a3f35;
   }
@@ -448,6 +449,111 @@
   button:active { transform: scale(0.97); }
 
   .btn-primary { background: var(--accent); color: var(--accent-text); }
+
+  .coin-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    transition: transform 0.12s, filter 0.12s;
+    position: relative;
+    height: 44px;
+  }
+  .coin-slot-line {
+    width: 34px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 2px;
+    position: relative;
+    margin-top: 2px;
+  }
+  .coin-slot-line::before, .coin-slot-line::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    width: 3px;
+    height: 10px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  .coin-slot-line::before { left: -1px; }
+  .coin-slot-line::after { right: -1px; }
+  .coin-circle {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 35%, #d0c4b4, #9a8e7e);
+    border: 2px solid #a89d8e;
+    color: rgba(50,40,28,0.85);
+    font-size: 8px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.25), 0 0 0 1px rgba(0,0,0,0.2);
+    pointer-events: none;
+  }
+  .coin-btn:hover .coin-circle { box-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+  .coin-btn:hover .coin-slot-line { background: var(--accent-hover); }
+  .coin-btn:hover .coin-slot-line::before, .coin-btn:hover .coin-slot-line::after { background: var(--accent-hover); }
+  .coin-btn:disabled { cursor: not-allowed; transform: none; }
+  .coin-btn:disabled .coin-circle { opacity: 0.3; }
+
+  .coin-trails {
+    display: flex;
+    gap: 3px;
+    justify-content: center;
+    align-items: flex-end;
+    height: 10px;
+    margin-bottom: 1px;
+  }
+  .coin-trail {
+    width: 1.5px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.45);
+  }
+  .coin-trail:nth-child(1) { height: 7px; }
+  .coin-trail:nth-child(2) { height: 10px; }
+  .coin-trail:nth-child(3) { height: 5px; }
+
+  .coin-btn.loading .coin-circle {
+    animation: coin-insert 0.6s ease-in forwards;
+  }
+  .coin-btn.loading .coin-trails {
+    animation: trails-insert 0.6s ease-in forwards;
+  }
+  @keyframes coin-insert {
+    0% { transform: translateY(0); opacity: 1; }
+    40% { transform: translateY(6px) scale(0.9); opacity: 0.7; }
+    70% { transform: translateY(10px) scale(0.75); opacity: 0.3; }
+    100% { transform: translateY(14px) scale(0.5); opacity: 0; }
+  }
+  @keyframes trails-insert {
+    0% { transform: translateY(0); opacity: 1; }
+    40% { transform: translateY(6px); opacity: 0.7; }
+    70% { transform: translateY(10px); opacity: 0.3; }
+    100% { transform: translateY(14px); opacity: 0; }
+  }
+  .coin-btn.loaded .coin-circle {
+    animation: coin-reset 0.3s ease-out forwards;
+  }
+  .coin-btn.loaded .coin-trails {
+    animation: trails-reset 0.3s ease-out forwards;
+  }
+  @keyframes coin-reset {
+    0% { transform: translateY(14px) scale(0.5); opacity: 0; }
+    100% { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  @keyframes trails-reset {
+    0% { transform: translateY(14px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
   .btn-primary:hover { background: var(--accent-hover); }
   .btn-primary:disabled { background: var(--border-accent); color: var(--text-muted); cursor: not-allowed; }
 
@@ -625,14 +731,7 @@
 
   /* --- Done State: Media Player --- */
   .player-title {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: var(--text-bright);
-    margin-bottom: 16px;
+    display: none;
   }
   .tabs {
     display: flex;
@@ -668,8 +767,7 @@
   .player-area {
     background: #231e18;
     border: 1px solid #3a3226;
-    border-top: none;
-    border-radius: 0 0 14px 14px;
+    border-radius: 14px;
     padding: 20px;
   }
 
@@ -794,6 +892,26 @@
     border: 1px solid rgba(74,63,47,0.6);
     z-index: 10;
   }
+  .vocal-toggle-inline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .vocal-toggle-inline .toggle-label {
+    font-size: 0.75rem;
+  }
+  .karaoke-fullscreen-btn-inline {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .karaoke-fullscreen-btn-inline:hover { color: var(--accent); border-color: var(--accent); }
   .toggle-label {
     font-size: 0.8rem;
     font-weight: 600;
@@ -836,27 +954,33 @@
     display: none;
   }
   .lyrics-panel {
-    margin-top: 16px;
     background: #1a1612;
-    border: 1px solid #3a3226;
-    border-radius: 12px;
     padding: 20px;
-    max-height: 300px;
-    overflow-y: auto;
-    scroll-behavior: smooth;
+    flex: 1;
+    overflow: hidden;
     text-align: center;
-    line-height: 2.2;
+    line-height: 1.6;
+    position: relative;
+    /* Fade edges */
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+  }
+  .lyrics-scroll-inner {
+    transition: transform 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+    will-change: transform;
+    padding: 0 0 120px;
   }
 
-  .lyrics-line { margin-bottom: 4px; transition: opacity 0.3s; }
-  .lyrics-line.past { opacity: 0.35; }
+  .lyrics-line { margin-bottom: 8px; transition: opacity 0.4s, transform 0.4s; transform: scale(1); }
+  .lyrics-line.past { opacity: 0.25; }
+  .lyrics-line.active-line { transform: scale(1.03); }
 
   .lyrics-word {
     display: inline;
-    padding: 2px 5px;
+    padding: 2px 4px;
     border-radius: 4px;
     transition: color 0.15s, background 0.15s;
-    font-size: 1.1rem;
+    font-size: 1.05rem;
     color: #d4c8b0;
   }
   .lyrics-word.active {
@@ -926,6 +1050,7 @@
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
+    padding-top: 12px;
     flex-wrap: wrap;
   }
   .library-header .divider-pipe { color: var(--border-accent); font-weight: 300; font-size: 0.7rem; }
@@ -952,6 +1077,9 @@
     transition: all 0.2s;
     text-transform: uppercase;
     letter-spacing: 0.08em;
+    min-width: 80px;
+    text-align: center;
+    box-sizing: border-box;
   }
   .filter-tab.active { background: var(--accent); color: var(--accent-text); }
   .filter-tab:hover:not(.active) { color: var(--text); }
@@ -1053,6 +1181,8 @@
 
   .library-item {
     position: relative;
+    display: flex;
+    flex-direction: column;
     background: #231e18;
     border: 1px solid #3a3226;
     border-radius: 14px;
@@ -1076,6 +1206,9 @@
 
   .library-info {
     padding: 12px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
   }
   .library-info h3 {
     font-size: 0.9rem;
@@ -1087,6 +1220,26 @@
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+  }
+  .library-info .channel { flex-shrink: 0; }
+  .library-info h3 { flex-shrink: 0; }
+  .library-info .info-spacer { flex: 1; }
+  .library-info .meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: auto;
+  }
+  .library-info .meta-row .meta-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .library-info .meta-row .meta-actions button {
+    position: static;
+    opacity: 0.7;
   }
   .library-info .meta {
     font-size: 0.8rem;
@@ -1147,9 +1300,7 @@
   .library-delete-btn:hover { color: #e07050; border-color: rgba(224,112,80,0.5); }
 
   .library-share-btn {
-    position: absolute;
-    bottom: 10px;
-    right: 10px;
+    position: static;
     width: 28px;
     height: 28px;
     padding: 0;
@@ -1167,6 +1318,7 @@
     transition: opacity 0.2s, color 0.2s, border-color 0.2s;
   }
   .library-share-btn:hover { color: #b48c3c; border-color: rgba(180,140,60,0.5); }
+
 
   .library-empty {
     text-align: center;
@@ -1197,6 +1349,11 @@
     align-items: center;
     justify-content: space-between;
     margin-top: 12px;
+  }
+  .tab-download-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
   .tab-download-right {
     display: flex;
@@ -1302,6 +1459,7 @@
     align-items: flex-start;
     justify-content: center;
     overflow-y: auto;
+    scrollbar-gutter: stable;
     padding: 40px 20px;
   }
   .player-overlay-content {
@@ -1312,12 +1470,13 @@
     padding: 32px;
     border: 1px solid #3a3226;
     box-shadow: 0 8px 48px rgba(0,0,0,0.6);
+    overflow: hidden;
     position: relative;
   }
   .player-layout {
     display: flex;
-    gap: 20px;
-    align-items: stretch;
+    gap: 0;
+    align-items: flex-start;
   }
   .player-main {
     flex: 1;
@@ -1331,37 +1490,83 @@
     border-radius: 12px;
     background: var(--bg-input);
     overflow: hidden;
+    /* Height synced to player-main via JS ResizeObserver */
+    max-height: 70vh;
+    transition: flex-basis 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease, padding 0.5s cubic-bezier(0.4, 0, 0.2, 1), border-width 0.3s ease;
   }
-  .player-comments-side .comments-header {
-    padding: 12px 14px;
-    margin: 0;
-    border-bottom: 1px solid var(--border);
+  .player-comments-side.collapsed {
+    flex-basis: 0;
+    opacity: 0;
+    padding: 0;
+    border-width: 0;
+    overflow: hidden;
+  }
+  .player-comments-divider {
+    flex: 0 0 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    background: #1e1a16;
+    border-left: 1px solid #2a2520;
+    border-right: 1px solid #2a2520;
+    border-radius: 0;
+    cursor: default;
+    position: relative;
+    z-index: 5;
+    transition: background 0.2s;
+  }
+  .player-comments-divider:hover { background: #2a2520; }
+  .player-comments-divider .divider-btn {
+    background: none;
+    border: none;
+    color: #6b6050;
+    cursor: pointer;
+    font-size: 0.65rem;
+    padding: 6px 2px;
+    line-height: 1;
+    transition: color 0.2s, transform 0.3s ease;
+    display: block;
+  }
+  .player-comments-divider .divider-btn:hover { color: #b48c3c; }
+  .player-comments-divider .divider-btn.flipped { transform: rotate(180deg); }
+  .player-comments-side .lyrics-tabs {
+    padding: 8px 14px 8px;
     flex-shrink: 0;
-  }
-  .player-comments-side .comment-input-row {
-    padding: 10px 14px;
-    margin: 0;
     border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
   }
-  .player-comments-side .comments-list {
+  .player-comments-side .lyrics-panel {
+    flex: 1;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+  }
+  .player-comments-side .analysis-panel {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 14px;
+    padding: 14px;
     max-height: none;
+    margin-top: 0;
+    border: none;
+    border-radius: 0;
   }
   @media (max-width: 900px) {
     .player-layout { flex-direction: column; }
     .player-comments-side { flex: none; max-height: 300px; }
+    .player-comments-side.collapsed { max-height: 0; flex: none; }
+    .player-comments-divider { flex-direction: row; height: 12px; width: 100%; border-left: none; border-right: none; border-top: 1px solid #2a2520; border-bottom: 1px solid #2a2520; }
+    .player-comments-divider .divider-btn.flipped { transform: rotate(90deg); }
   }
 
-  /* --- Lyrics panel toggle --- */
-  .lyrics-toggle {
+  /* --- Lyrics section tabs --- */
+  .lyrics-tabs {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 12px;
-    padding: 6px 12px;
+    gap: 4px;
+    margin: 12px 0 8px;
+  }
+  .lyrics-tab {
+    padding: 6px 14px;
     background: none;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -1369,18 +1574,61 @@
     font-size: 0.78rem;
     font-family: inherit;
     cursor: pointer;
-    transition: color 0.2s, border-color 0.2s;
-    width: fit-content;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
   }
-  .lyrics-toggle:hover { color: var(--accent); border-color: var(--accent); }
-  .lyrics-toggle .arrow {
-    display: inline-block;
-    transition: transform 0.2s;
-    font-size: 0.65rem;
+  .lyrics-tab svg { flex-shrink: 0; }
+  .lyrics-tab:hover { color: var(--accent); border-color: var(--accent); }
+  .lyrics-tab.active {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
   }
-  .lyrics-toggle.collapsed .arrow { transform: rotate(-90deg); }
-  .lyrics-panel.collapsed {
+  .lyrics-panel.hidden, .analysis-panel.hidden {
     display: none !important;
+  }
+
+  /* --- Between the Lines panel --- */
+  .analysis-panel {
+    margin-top: 16px;
+    background: #1a1612;
+    border: 1px solid #3a3226;
+    border-radius: 12px;
+    padding: 20px 24px;
+    max-height: 300px;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+    line-height: 1.7;
+    font-size: 0.9rem;
+    color: #d4c8b0;
+  }
+  .analysis-panel em { color: #e8d5a3; font-style: italic; }
+  .analysis-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .analysis-song-title {
+    color: var(--accent);
+    font-size: 1.4rem;
+    font-weight: 700;
+  }
+  .analysis-rerun {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    text-decoration: none;
+    opacity: 0.6;
+    transition: opacity 0.2s, color 0.2s;
+  }
+  .analysis-rerun:hover { opacity: 1; color: var(--accent); }
+  .analysis-panel .analysis-loading {
+    text-align: center;
+    color: #8a7e6b;
+    padding: 20px;
   }
   .player-overlay-actions {
     position: absolute;
@@ -1673,9 +1921,7 @@
 
   /* --- Playlist "+" Button (in library grid items, right of share) --- */
   .library-playlist-btn {
-    position: absolute;
-    bottom: 10px;
-    right: 44px;
+    position: static;
     width: 28px; height: 28px; padding: 0;
     border-radius: 50%;
     border: 1px solid rgba(74,63,47,0.5);
@@ -1823,7 +2069,12 @@
 
   /* --- Comments Section (side panel in player overlay) --- */
   .comments-section {
-    display: flex; flex-direction: column; height: 100%;
+    display: flex; flex-direction: column;
+  }
+  .player-main > .comments-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
   }
   .comments-header {
     font-size: 0.8rem; color: var(--text-dim); font-weight: 600;
@@ -1844,7 +2095,7 @@
   }
   .comment-input-row button:hover { background: var(--accent-hover); }
   .comments-list {
-    max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+    max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
   }
   .comment-item {
     display: flex; gap: 10px; align-items: flex-start;
@@ -1906,13 +2157,33 @@
   .admin-tab:hover { color: var(--text); }
   .admin-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
   .admin-tab-content { max-height: 450px; overflow-y: auto; }
-  .admin-stat {
-    flex: 1; min-width: 100px; padding: 10px 14px;
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
-    text-align: center;
+  .admin-stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 20px;
   }
-  .admin-stat .val { font-size: 1.3rem; font-weight: 700; color: var(--text-bright); }
-  .admin-stat .label { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+  .admin-stat-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 60px;
+  }
+  .admin-stat-label {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .admin-stat {
+    padding: 6px 12px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+    text-align: center;
+    min-width: 50px;
+  }
+  .admin-stat .val { font-size: 1rem; font-weight: 700; color: var(--text-bright); }
   .admin-row {
     display: flex; align-items: center; gap: 10px; padding: 10px 12px;
     border-bottom: 1px solid var(--border-light); font-size: 0.82rem;
@@ -1935,6 +2206,15 @@
   }
   .admin-btn:hover { border-color: var(--accent); color: var(--accent); }
   .admin-btn.danger:hover { border-color: var(--error); color: var(--error); }
+  .admin-role-select {
+    padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg-input); color: var(--text-dim); font-size: 0.7rem;
+    font-family: inherit; cursor: pointer; transition: all 0.2s;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%236b6050' stroke-width='3'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 6px center; padding-right: 20px;
+  }
+  .admin-role-select:hover { border-color: var(--accent); color: var(--accent); }
   .admin-section {
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px;
     overflow: hidden;
@@ -1985,7 +2265,7 @@
 <div id="app">
   <div class="header">
     <img src="/static/logo.png" alt="Baretraks" class="logo" />
-    <span class="header-tagline">A Community Jukebox for Music Without Borders<br><span class="header-tagline-sub">Queue it. Sing it. Understand it.</span></span>
+    <span class="header-tagline">Music Without Borders<br><span class="header-tagline-sub">Queue it. Sing it. Understand it.</span></span>
     <div style="flex:1;"></div>
     <div class="header-actions" id="header-actions"></div>
   </div>
@@ -1998,7 +2278,15 @@
     <div class="queue-input">
       <div class="input-row">
         <input type="text" id="url-input" placeholder="YouTube URL..." onkeydown="if(event.key==='Enter')addToQueue()" />
-        <button class="btn-primary" id="btn-submit" onclick="addToQueue()">+ Add</button>
+        <button class="coin-btn" id="btn-submit" onclick="addToQueue()" title="Add to Jukebox">
+          <span class="coin-trails">
+            <span class="coin-trail"></span>
+            <span class="coin-trail"></span>
+            <span class="coin-trail"></span>
+          </span>
+          <span class="coin-circle">25&#162;</span>
+          <span class="coin-slot-line"></span>
+        </button>
       </div>
       <div class="mode-row">
         <label><input type="checkbox" id="mode-karaoke" checked onchange="onModeChange()"> Karaoke</label>
@@ -2056,7 +2344,7 @@
     <button class="divider-btn" onclick="expandLibrary()" title="Toggle Production">&#9654;</button>
   </div>
 
-  <!-- === LIBRARY PANE === -->
+  <!-- === JUKEBOX PANE === -->
   <div class="pane-library" id="pane-library">
     <div class="library-header">
       <div id="library-header-tabs"></div>
@@ -2160,7 +2448,7 @@
     <h3 style="color:var(--text-bright);margin-bottom:16px;">Admin Panel</h3>
 
     <!-- Stats Bar -->
-    <div id="admin-stats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;"></div>
+    <div id="admin-stats" class="admin-stats-row"></div>
 
     <!-- Tabs -->
     <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0;">
@@ -2168,6 +2456,9 @@
       <button class="admin-tab" data-tab="feedback" onclick="switchAdminTab('feedback')">Feedback</button>
       <button class="admin-tab" data-tab="comments" onclick="switchAdminTab('comments')">Comments</button>
       <button class="admin-tab" data-tab="invitations" onclick="switchAdminTab('invitations')">Invitations</button>
+      <button class="admin-tab" data-tab="prompts" onclick="switchAdminTab('prompts')">Prompts</button>
+      <button class="admin-tab" data-tab="wishlist" onclick="switchAdminTab('wishlist')">Requests</button>
+      <button class="admin-tab" data-tab="settings" onclick="switchAdminTab('settings')">Settings</button>
     </div>
 
     <!-- Tab Content -->
@@ -2175,6 +2466,9 @@
     <div id="admin-tab-feedback" class="admin-tab-content" style="display:none;"></div>
     <div id="admin-tab-comments" class="admin-tab-content" style="display:none;"></div>
     <div id="admin-tab-invitations" class="admin-tab-content" style="display:none;"></div>
+    <div id="admin-tab-prompts" class="admin-tab-content" style="display:none;"></div>
+    <div id="admin-tab-wishlist" class="admin-tab-content" style="display:none;"></div>
+    <div id="admin-tab-settings" class="admin-tab-content" style="display:none;"></div>
   </div>
 </div>
 
@@ -2189,12 +2483,6 @@
       <div class="player-main">
         <div class="tabs" id="overlay-tabs"></div>
         <div class="player-area" id="overlay-player-area"></div>
-        <button class="lyrics-toggle" id="lyrics-toggle" onclick="toggleLyricsPanel()" style="display:none;">
-          <span class="arrow">&#9660;</span> Lyrics
-        </button>
-        <div class="lyrics-panel" id="overlay-lyrics-panel"></div>
-      </div>
-      <div class="player-comments-side">
         <div class="comments-section" id="comments-section">
           <div class="comments-header">Comments</div>
           <div class="comment-input-row" id="comment-input-row" style="display:none;">
@@ -2203,6 +2491,17 @@
           </div>
           <div class="comments-list" id="comments-list"></div>
         </div>
+      </div>
+      <div class="player-comments-divider">
+        <button class="divider-btn" onclick="togglePlayerComments()" title="Toggle Lyrics">&#9664;</button>
+      </div>
+      <div class="player-comments-side" id="player-comments-side">
+        <div class="lyrics-tabs" id="lyrics-tabs" style="display:none;">
+          <button class="lyrics-tab active" id="tab-live-lyrics" onclick="switchLyricsTab('live')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Live Lyrics</button>
+          <button class="lyrics-tab" id="tab-btl" onclick="switchLyricsTab('btl')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg> Between the Lines</button>
+        </div>
+        <div class="lyrics-panel" id="overlay-lyrics-panel"></div>
+        <div class="analysis-panel hidden" id="overlay-analysis-panel"></div>
       </div>
     </div>
   </div>
@@ -2226,7 +2525,8 @@
       <button class="player-overlay-close" onclick="closeInvite()">&times;</button>
     </div>
     <h3 style="color:var(--text-bright);margin-bottom:4px;font-size:1.1rem;">Invite Friends</h3>
-    <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:16px;">Invite friends to join Baretraks by email.</p>
+    <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:8px;">Invite friends to join Baretraks by email.</p>
+    <div id="invite-remaining" style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px;"></div>
     <div style="display:flex;gap:8px;">
       <input type="email" id="invite-email-input" placeholder="friend@example.com" onkeydown="if(event.key==='Enter')addInviteEmail()"
         style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;" />
@@ -2296,6 +2596,7 @@ let paneState = 'default'; // 'default' (30/70) | 'lib-expanded' (0/100)
 // ---- Pane navigation ----
 
 function stopAllMedia() {
+  _stopLyricsRaf();
   if (activeMediaEl) {
     activeMediaEl.pause();
     activeMediaEl.removeEventListener('timeupdate', onTimeUpdate);
@@ -2310,10 +2611,27 @@ function stopAllMedia() {
   if (typeof destroyYtPlayer === 'function') destroyYtPlayer();
 }
 
+// Sync lyrics pane height to player main area
+let _playerResizeObs = null;
+function _syncPlayerHeight() {
+  if (_playerResizeObs) _playerResizeObs.disconnect();
+  const main = document.querySelector('.player-overlay:not(.hidden) .player-main');
+  const side = document.querySelector('.player-overlay:not(.hidden) .player-comments-side');
+  if (!main || !side) return;
+  const update = () => {
+    const h = main.offsetHeight;
+    if (h > 0) side.style.maxHeight = h + 'px';
+  };
+  update();
+  _playerResizeObs = new ResizeObserver(update);
+  _playerResizeObs.observe(main);
+}
+
 function closePlayer() {
   const overlay = document.getElementById('player-overlay');
   if (!overlay || overlay.classList.contains('hidden')) return;
   stopAllMedia();
+  if (_playerResizeObs) { _playerResizeObs.disconnect(); _playerResizeObs = null; }
   overlay.classList.add('hidden');
   if (window.location.hash.startsWith('#/watch/')) {
     history.replaceState(null, '', window.location.pathname);
@@ -2322,24 +2640,110 @@ function closePlayer() {
   document.getElementById('overlay-tabs').innerHTML = '';
   document.getElementById('overlay-player-area').innerHTML = '';
   document.getElementById('overlay-lyrics-panel').innerHTML = '';
+  document.getElementById('overlay-analysis-panel').innerHTML = '';
   document.getElementById('comments-list').innerHTML = '';
   document.getElementById('comment-input').value = '';
-  document.getElementById('lyrics-toggle').style.display = 'none';
+  document.getElementById('lyrics-tabs').style.display = 'none';
   currentPlayerJobId = null;
 }
 
-let lyricsCollapsed = false;
+function togglePlayerComments() {
+  const panel = document.getElementById('player-comments-side');
+  const btn = document.querySelector('.player-comments-divider .divider-btn');
+  if (!panel) return;
+  panel.classList.toggle('collapsed');
+  if (btn) btn.classList.toggle('flipped');
+}
 
-function toggleLyricsPanel() {
-  lyricsCollapsed = !lyricsCollapsed;
-  const panel = document.getElementById('overlay-lyrics-panel');
-  const btn = document.getElementById('lyrics-toggle');
-  if (lyricsCollapsed) {
-    panel.classList.add('collapsed');
-    btn.classList.add('collapsed');
+let _currentLyricsTab = 'live';
+let _analysisCache = {}; // jobId -> analysis text
+
+function switchLyricsTab(tab) {
+  _currentLyricsTab = tab;
+  const liveTab = document.getElementById('tab-live-lyrics');
+  const btlTab = document.getElementById('tab-btl');
+  const lyricsPanel = document.getElementById('overlay-lyrics-panel');
+  const analysisPanel = document.getElementById('overlay-analysis-panel');
+
+  if (tab === 'live') {
+    liveTab.classList.add('active');
+    btlTab.classList.remove('active');
+    lyricsPanel.classList.remove('hidden');
+    analysisPanel.classList.add('hidden');
   } else {
-    panel.classList.remove('collapsed');
-    btn.classList.remove('collapsed');
+    liveTab.classList.remove('active');
+    btlTab.classList.add('active');
+    lyricsPanel.classList.add('hidden');
+    analysisPanel.classList.remove('hidden');
+    loadAnalysis();
+  }
+}
+
+async function loadAnalysis() {
+  const panel = document.getElementById('overlay-analysis-panel');
+  const jobId = currentPlayerJobId;
+  if (!jobId) return;
+
+  // Use cache if available
+  if (_analysisCache[jobId]) {
+    panel.innerHTML = _renderAnalysis(_analysisCache[jobId]);
+    return;
+  }
+
+  // Show loading only after a delay — cached responses return before it appears
+  const loadingTimer = setTimeout(() => {
+    if (_currentLyricsTab === 'btl' && currentPlayerJobId === jobId) {
+      panel.innerHTML = '<div class="analysis-loading">Decoding the meaning...</div>';
+    }
+  }, 300);
+
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}/analysis`);
+    clearTimeout(loadingTimer);
+    if (!resp.ok) throw new Error('Failed to load');
+    const data = await resp.json();
+    _analysisCache[jobId] = data;
+    if (_currentLyricsTab === 'btl' && currentPlayerJobId === jobId) {
+      panel.innerHTML = _renderAnalysis(data);
+    }
+  } catch (e) {
+    clearTimeout(loadingTimer);
+    panel.innerHTML = '<div class="analysis-loading">Could not load analysis.</div>';
+  }
+}
+
+function _renderAnalysis(data) {
+  const songInfo = data.song_info || '';
+  const text = data.analysis || '';
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const formatted = escaped
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+  const jobId = currentPlayerJobId || '';
+  const rerunLink = jobId ? `<a class="analysis-rerun" onclick="rerunAnalysis('${jobId}')">Analyze again</a>` : '';
+  const header = songInfo
+    ? `<div class="analysis-header"><span class="analysis-song-title">${escapeHtml(songInfo)}</span>${rerunLink}</div>`
+    : (rerunLink ? `<div class="analysis-header">${rerunLink}</div>` : '');
+  return header + formatted;
+}
+
+async function rerunAnalysis(jobId) {
+  const panel = document.getElementById('overlay-analysis-panel');
+  delete _analysisCache[jobId];
+  panel.innerHTML = '<div class="analysis-loading">Re-analyzing...</div>';
+  try {
+    // Clear cached analysis in DB first
+    await fetch(`/api/jobs/${jobId}/analysis/rerun`, { method: 'POST' });
+    const resp = await fetch(`/api/jobs/${jobId}/analysis`);
+    if (!resp.ok) throw new Error('Failed');
+    const data = await resp.json();
+    _analysisCache[jobId] = data;
+    if (_currentLyricsTab === 'btl' && currentPlayerJobId === jobId) {
+      panel.innerHTML = _renderAnalysis(data);
+    }
+  } catch (e) {
+    panel.innerHTML = '<div class="analysis-loading">Failed to re-analyze.</div>';
   }
 }
 
@@ -2362,6 +2766,7 @@ function expandLibrary() {
 // ---- Queue State ----
 let productionQueue = [];
 let queuePollInterval = null;
+let _diskQuotaExceeded = false;
 
 function startQueuePolling() {
   if (queuePollInterval) return;
@@ -2378,18 +2783,69 @@ async function pollQueue() {
     const resp = await fetch('/api/queue');
     const data = await resp.json();
     const oldProcessingId = productionQueue.find(i => i.status === 'processing')?.id;
+    const oldLen = productionQueue.length;
     productionQueue = data.queue || [];
     currentJob = data.job || null;
+    _diskQuotaExceeded = data.disk_quota_exceeded || false;
     renderQueue();
 
-    // If a processing item just finished, refresh library
+    // If a processing item just finished or queue shrunk, refresh library
     const newProcessingId = productionQueue.find(i => i.status === 'processing')?.id;
-    if (oldProcessingId && oldProcessingId !== newProcessingId) {
-      loadLibrary();
+    if ((oldProcessingId && oldProcessingId !== newProcessingId) ||
+        (productionQueue.length < oldLen)) {
+      await loadLibrary();
     }
 
-    // Stop polling if queue is empty
+    // If queue grew (another user added items), start fast polling
+    if (productionQueue.length > oldLen) startQueuePolling();
+
+    // Stop fast polling if queue is empty (background poll continues)
     if (productionQueue.length === 0) stopQueuePolling();
+  } catch (e) {}
+}
+
+// Background refresh: quietly pick up changes from other users
+let _bgPollInterval = null;
+let _lastLibraryCount = -1;
+
+function startBackgroundPolling() {
+  if (_bgPollInterval) return;
+  _bgPollInterval = setInterval(backgroundPoll, 30000);
+}
+
+async function backgroundPoll() {
+  // Skip if a player overlay is open (don't disrupt playback)
+  const playerOpen = !document.getElementById('player-overlay')?.classList.contains('hidden');
+  if (playerOpen) return;
+
+  try {
+    // Refresh queue state (picks up items added by other users)
+    const qResp = await fetch('/api/queue');
+    if (qResp.ok) {
+      const qData = await qResp.json();
+      const hadItems = productionQueue.length > 0;
+      productionQueue = qData.queue || [];
+      currentJob = qData.job || null;
+      _diskQuotaExceeded = qData.disk_quota_exceeded || false;
+      renderQueue();
+      // Start fast polling if new items appeared
+      if (!hadItems && productionQueue.length > 0) startQueuePolling();
+    }
+
+    // Refresh library if item count changed (new songs produced)
+    const lResp = await fetch('/api/library');
+    if (lResp.ok) {
+      const lData = await lResp.json();
+      const newCount = (lData.items || []).length;
+      if (_lastLibraryCount >= 0 && newCount !== _lastLibraryCount) {
+        libraryItems = lData.items || [];
+        if (!_wishlistActive) {
+          renderLibraryFilterBar();
+          renderLibraryGrid();
+        }
+      }
+      _lastLibraryCount = newCount;
+    }
   } catch (e) {}
 }
 
@@ -2397,24 +2853,24 @@ async function addToQueue() {
   const url = document.getElementById('url-input').value.trim();
   if (!url) return;
   if (!/youtube\.com\/watch|youtu\.be\//.test(url)) {
-    alert('Please enter a valid YouTube URL');
+    showAlert('Please enter a valid YouTube URL');
     return;
   }
 
   const mode = getSelectedMode();
   const languages = (mode === 'subtitled' || mode === 'both') ? [...selectedLanguages] : [];
   if ((mode === 'subtitled' || mode === 'both') && languages.length === 0) {
-    alert('Please add at least one subtitle language.');
+    showAlert('Please add at least one subtitle language.');
     return;
   }
   if (mode === 'karaoke' && !document.getElementById('mode-karaoke').checked) {
-    alert('Please select at least one production mode.');
+    showAlert('Please select at least one production mode.');
     return;
   }
 
   const btn = document.getElementById('btn-submit');
   btn.disabled = true;
-  btn.textContent = 'Adding...';
+  btn.classList.add('loading');
 
   try {
     const body = { url, mode };
@@ -2431,10 +2887,12 @@ async function addToQueue() {
     document.getElementById('url-input').value = '';
     startQueuePolling();
   } catch (e) {
-    alert('Error: ' + e.message);
+    showAlert('Error: ' + e.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = '+ Add';
+    btn.classList.remove('loading');
+    btn.classList.add('loaded');
+    setTimeout(() => btn.classList.remove('loaded'), 400);
   }
 }
 
@@ -2457,7 +2915,14 @@ async function removeQueueItem(itemId) {
 
 async function pauseQueueItem(itemId) {
   try {
-    await fetch(`/api/queue/${itemId}/pause`, { method: 'POST' });
+    const resp = await fetch(`/api/queue/${itemId}/pause`, { method: 'POST' });
+    if (resp.ok) {
+      const data = await resp.json();
+      // Update local state for immediate UI feedback
+      const item = productionQueue.find(i => i.id === itemId);
+      if (item) item.pause_requested = data.pause_requested;
+      renderQueue();
+    }
   } catch (e) {}
 }
 
@@ -2468,10 +2933,20 @@ async function resumeQueueItem(itemId) {
   } catch (e) {}
 }
 
+
 function renderQueue() {
   const list = document.getElementById('queue-list');
+
+  // Disk quota warning
+  const quotaWarning = _diskQuotaExceeded
+    ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:8px;background:rgba(224,112,80,0.1);border:1px solid rgba(224,112,80,0.3);border-radius:8px;font-size:0.78rem;color:var(--error);">
+        <span style="font-size:1.2rem;">&#9888;</span>
+        <span>Disk space limit reached. Free up songs from the Jukebox to continue production, or contact the Administrator.</span>
+      </div>`
+    : '';
+
   if (productionQueue.length === 0) {
-    list.innerHTML = '<p style="color:#4a3f35;font-size:0.8rem;text-align:center;margin-top:20px;">Queue is empty. Add a URL above to get started.</p>';
+    list.innerHTML = quotaWarning + '<p style="color:#4a3f35;font-size:0.8rem;text-align:center;margin-top:20px;">Queue is empty. Add a URL above to get started.</p>';
     return;
   }
 
@@ -2479,7 +2954,9 @@ function renderQueue() {
   const processingItem = productionQueue.find(q => q.status === 'processing');
   if (processingItem) {
     const existingEl = list.querySelector(`.queue-item[data-id="${processingItem.id}"]`);
-    if (existingEl && existingEl.classList.contains('processing') && list.children.length === productionQueue.length) {
+    const wasPauseRequested = existingEl?.querySelector('[title="Cancel pause"]') !== null;
+    const isPauseNow = processingItem.pause_requested || false;
+    if (existingEl && existingEl.classList.contains('processing') && list.children.length === productionQueue.length && wasPauseRequested === isPauseNow) {
       // Update just the dynamic parts in-place
       const totalSteps = getStepNamesForMode(processingItem.mode).length;
       const stepNum = processingItem.step || 0;
@@ -2503,8 +2980,8 @@ function renderQueue() {
   list.innerHTML = productionQueue.map((item, i) => {
     const isProcessing = item.status === 'processing';
     const isPaused = item.status === 'paused';
-    const isFailed = item.status === 'failed';
     const isQueued = item.status === 'queued';
+    const wasRetry = item.was_failed;
 
     const langSuffix = item.languages?.length ? ' · ' + item.languages.map(c => LANG_NAMES_ALL[c] || c).join(', ') : '';
     const modeLabel = item.mode === 'both'
@@ -2518,7 +2995,6 @@ function renderQueue() {
       statusLine = stepNum > 0 ? `${stepNum}/${totalSteps} ${item.step_name}` : item.step_name;
     }
     if (isPaused) statusLine = 'Paused — ' + modeLabel;
-    if (isFailed) statusLine = 'Failed';
 
     let icon = '';
     if (isProcessing) {
@@ -2529,7 +3005,7 @@ function renderQueue() {
       icon = `<div class="queue-pie" style="--pct:${Math.max(overallPct, 2)}%"><span class="queue-pie-pct">${overallPct}%</span></div>`;
     } else if (isPaused) {
       icon = '&#9646;&#9646;';
-    } else if (isFailed) {
+    } else if (wasRetry) {
       icon = '!';
     }
 
@@ -2552,7 +3028,10 @@ function renderQueue() {
     const isTopQueued = isQueued && i === productionQueue.findIndex(q => q.status === 'queued');
 
     let actions = '';
-    if (isProcessing) {
+    const isPauseRequested = isProcessing && item.pause_requested;
+    if (isProcessing && isPauseRequested) {
+      actions = `<button class="queue-action-btn" onclick="pauseQueueItem('${item.id}')" title="Cancel pause" style="color:var(--accent);font-size:0.65rem;white-space:nowrap;">Pausing...</button>`;
+    } else if (isProcessing) {
       actions = `<button class="queue-action-btn" onclick="pauseQueueItem('${item.id}')" title="Pause">&#9208;</button>`;
     } else if (isPaused) {
       actions = `<button class="queue-action-btn" onclick="resumeQueueItem('${item.id}')" title="Resume">&#9654;</button>`;
@@ -2577,6 +3056,9 @@ function renderQueue() {
       </div>
     `;
   }).join('');
+
+  // Prepend quota warning if needed
+  if (_diskQuotaExceeded) list.innerHTML = quotaWarning + list.innerHTML;
 }
 
 // ---- Queue Drag and Drop ----
@@ -2684,7 +3166,7 @@ async function submitJob(skipDuplicateCheck = false) {
   const url = document.getElementById('url-input').value.trim();
   if (!url) return;
   if (!/youtube\.com\/watch|youtu\.be\//.test(url)) {
-    alert('Please enter a valid YouTube URL');
+    showAlert('Please enter a valid YouTube URL');
     return;
   }
 
@@ -2692,13 +3174,13 @@ async function submitJob(skipDuplicateCheck = false) {
   const languages = (mode === 'subtitled' || mode === 'both') ? [...selectedLanguages] : [];
 
   if ((mode === 'subtitled' || mode === 'both') && languages.length === 0) {
-    alert('Please add at least one subtitle language.');
+    showAlert('Please add at least one subtitle language.');
     return;
   }
 
   const btn = document.getElementById('btn-submit');
   btn.disabled = true;
-  btn.textContent = 'Checking...';
+  btn.classList.add('loading');
 
   try {
     // Check if this URL already exists in the library for this mode
@@ -2708,7 +3190,9 @@ async function submitJob(skipDuplicateCheck = false) {
         const checkData = await checkResp.json();
         if (checkData.found) {
           btn.disabled = false;
-          btn.textContent = 'Generate';
+          btn.classList.remove('loading');
+    btn.classList.add('loaded');
+    setTimeout(() => btn.classList.remove('loaded'), 400);
           showDuplicateDialog(checkData.item);
           return;
         }
@@ -2718,7 +3202,7 @@ async function submitJob(skipDuplicateCheck = false) {
     // Set mode-aware step names
     STEP_NAMES = getStepNamesForMode(mode);
 
-    btn.textContent = 'Submitting...';
+    // loading animation already active
     const body = { url, mode };
     if (languages.length > 0) body.languages = languages;
     const resp = await fetch('/api/jobs', {
@@ -2727,7 +3211,7 @@ async function submitJob(skipDuplicateCheck = false) {
       body: JSON.stringify(body),
     });
     if (resp.status === 409) {
-      alert('A job is already running. Please wait for it to finish.');
+      showAlert('A job is already running. Please wait for it to finish.');
       return;
     }
     if (!resp.ok) throw new Error('Failed to start job');
@@ -2735,10 +3219,12 @@ async function submitJob(skipDuplicateCheck = false) {
     currentJob = data.job;
     showProcessing();
   } catch (e) {
-    alert('Error: ' + e.message);
+    showAlert('Error: ' + e.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Generate';
+    btn.classList.remove('loading');
+    btn.classList.add('loaded');
+    setTimeout(() => btn.classList.remove('loaded'), 400);
   }
 }
 
@@ -3070,25 +3556,28 @@ function renderSubtitledPlayer(jobId, youtubeUrl, languages) {
     <div class="yt-player-container" id="yt-player-container">
       <div id="yt-player-target"></div>
       <div class="subtitle-overlay" id="subtitle-overlay"></div>
-      <div class="subtitle-controls">
-        ${langSelector}
-        <label class="toggle-switch" title="Toggle subtitles">
-          <input type="checkbox" id="subtitle-toggle-cb" checked onchange="subtitlesVisible=this.checked; if(!this.checked) document.getElementById('subtitle-overlay').textContent=''">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="toggle-label">CC</span>
-        <button class="yt-fullscreen-btn" onclick="toggleYtFullscreen()" title="Fullscreen">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-        </button>
-      </div>
     </div>
     <div class="tab-download">
-        <div></div>
+        <div class="tab-download-left">
+          <div class="vocal-toggle-inline">
+            <label class="toggle-switch" title="Toggle subtitles">
+              <input type="checkbox" id="subtitle-toggle-cb" checked onchange="subtitlesVisible=this.checked; if(!this.checked) document.getElementById('subtitle-overlay').textContent=''">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Subtitles</span>
+          </div>
+          ${langSelector}
+          <button class="karaoke-fullscreen-btn-inline" onclick="toggleYtFullscreen()" title="Fullscreen">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
+          ${_isBothMode(jobId) ? `<button class="karaoke-fullscreen-btn-inline" onclick="flipPlayerMode('${jobId}')" title="Karaoke Mode" style="font-size:0.7rem;font-weight:700;font-family:inherit;letter-spacing:0.02em;">CC</button>` : ''}
+        </div>
+        ${_renderPlayerTitleInfo(jobId)}
         <div class="tab-download-right">
           <span class="vote-controls" data-vote-id="${jobId}">${renderVoteControls(jobId, _getVoteData(jobId, 'up'), _getVoteData(jobId, 'down'), _getVoteData(jobId, 'user'))}</span>
-          <button class="player-share-btn" onclick="sharePlayer()" title="Copy link">
+          ${userCan('can_share_library') ? `<button class="player-share-btn" onclick="sharePlayer()" title="Copy link">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-          </button>
+          </button>` : ''}
         </div>
       </div>`;
 
@@ -3176,20 +3665,26 @@ function startSubtitleSync() {
   function tick() {
     subtitleAnimFrame = requestAnimationFrame(tick);
     if (!ytPlayer || !ytPlayer.getCurrentTime) return;
-    if (!subtitlesVisible) return;
 
     const t = ytPlayer.getCurrentTime() + SUBTITLE_OFFSET;
-    let activeText = '';
-    for (const cue of subtitleCues) {
-      if (t >= cue.start && t <= cue.end) {
-        activeText = cue.text;
-        break;
+
+    // Subtitle overlay sync
+    if (subtitlesVisible) {
+      let activeText = '';
+      for (const cue of subtitleCues) {
+        if (t >= cue.start && t <= cue.end) {
+          activeText = cue.text;
+          break;
+        }
+      }
+      if (activeText !== lastText) {
+        overlay.textContent = activeText;
+        lastText = activeText;
       }
     }
-    if (activeText !== lastText) {
-      overlay.textContent = activeText;
-      lastText = activeText;
-    }
+
+    // Live Lyrics sync (reuse same time source)
+    updateLyricsHighlight(t);
   }
   tick();
 }
@@ -3224,7 +3719,7 @@ async function resumeJob() {
   try {
     const resp = await fetch(`/api/jobs/${currentJob.id}/resume`, { method: 'POST' });
     if (resp.status === 409) {
-      alert('A job is already running.');
+      showAlert('A job is already running.');
       return;
     }
     if (!resp.ok) {
@@ -3235,7 +3730,7 @@ async function resumeJob() {
     currentJob = data.job;
     showProcessing();
   } catch (e) {
-    alert('Error: ' + e.message);
+    showAlert('Error: ' + e.message);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Resume';
@@ -3268,43 +3763,63 @@ async function showInlinePlayer(jobId) {
 async function showPlayerForJob(jobId) {
   playerMode = 'overlay';
 
-  // Load job info if we don't have it or it's a different job
-  if (!currentJob || currentJob.id !== jobId) {
-    const resp = await fetch('/api/jobs/current');
-    const data = await resp.json();
-    if (data.job && data.job.id === jobId) {
-      currentJob = data.job;
-    } else {
+  // Always resolve from library item (has LLM-enriched metadata).
+  // Only fall back to /api/jobs/current if item isn't in the library yet.
+  let item = libraryItems.find(i => i.id === jobId);
+  if (!item) {
+    // Item not cached — re-fetch library
+    try {
       const libResp = await fetch('/api/library');
       const libData = await libResp.json();
-      const item = libData.items.find(i => i.id === jobId);
-      if (item) {
-        currentJob = { id: item.id, title: item.title, url: item.url, mode: item.mode, languages: item.languages, status: 'done' };
+      libraryItems = libData.items || [];
+      _lastLibraryCount = libraryItems.length;
+      item = libraryItems.find(i => i.id === jobId);
+    } catch (e) {}
+  }
+  if (item) {
+    currentJob = { ...item, status: 'done' };
+  } else {
+    // Not in library — might be currently processing
+    try {
+      const resp = await fetch('/api/jobs/current');
+      const data = await resp.json();
+      if (data.job && data.job.id === jobId) {
+        currentJob = data.job;
       } else {
         currentJob = { id: jobId, title: 'Unknown', status: 'done' };
       }
+    } catch (e) {
+      currentJob = { id: jobId, title: 'Unknown', status: 'done' };
     }
   }
 
-  // Show the overlay and set URL hash for sharing
+  // Record view and show the overlay
+  fetch(`/api/jobs/${jobId}/view`, { method: 'POST' }).catch(() => {});
   document.getElementById('player-overlay').classList.remove('hidden');
   window.location.hash = `/watch/${jobId}`;
 
   const jobMode = currentJob.mode || 'karaoke';
-  const titleEl = document.getElementById('overlay-title');
-  const item = libraryItems.find(i => i.id === jobId);
-  titleEl.innerHTML = `
-    <span>${escapeHtml(currentJob.title || (jobMode === 'subtitled' ? 'Subtitled Video' : (jobMode === 'both' ? 'Karaoke + Subtitles' : 'Karaoke')))}</span>
-  `;
 
   // Load comments for this song
   loadComments(jobId);
 
   if (jobMode === 'subtitled') {
     _tabsEl().innerHTML = '';
-    _lyricsPanelEl().innerHTML = '';
-    document.getElementById('lyrics-toggle').style.display = 'none';
-    renderSubtitledPlayer(jobId, currentJob.url, currentJob.languages || (currentJob.language ? [currentJob.language] : []));
+    try {
+      const resp = await fetch(`/api/jobs/${jobId}/lyrics`);
+      lyricsData = await resp.json();
+    } catch (e) { lyricsData = []; }
+    const _subItem = libraryItems.find(i => i.id === jobId);
+    const _subUrl = _subItem?.url || currentJob?.url || '';
+    const _subLangs = _subItem?.languages || currentJob?.languages || (currentJob?.language ? [currentJob.language] : []);
+    renderSubtitledPlayer(jobId, _subUrl, _subLangs);
+    renderLyrics();
+    const lyricsTabs = document.getElementById('lyrics-tabs');
+    if (lyricsTabs) {
+      lyricsTabs.style.display = (lyricsData && lyricsData.length > 0) ? 'flex' : 'none';
+      switchLyricsTab('live');
+    }
+    setTimeout(_syncPlayerHeight, 100);
     return;
   }
 
@@ -3325,21 +3840,143 @@ async function showPlayer() {
   }
 }
 
+function _renderPlayerTitleInfo(jobId) {
+  const item = libraryItems.find(i => i.id === jobId);
+  // Library item has LLM-enriched metadata; currentJob has raw YouTube data
+  const title = item?.title || currentJob?.title || '';
+  const artist = item?.artist || currentJob?.artist || '';
+  const year = item?.year || currentJob?.year || '';
+  const editLink = currentUser ? `<a style="font-size:0.65rem;color:var(--text-muted);cursor:pointer;opacity:0.6;margin-left:4px;" onclick="event.stopPropagation(); openEditMetadata('${jobId}')">edit</a>` : '';
+  const artistYear = [artist, year ? `(${year})` : ''].filter(Boolean).join(' ');
+  const line2 = artistYear ? `<div style="font-size:0.72rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(artistYear)}${editLink}</div>` : (editLink ? `<div style="font-size:0.72rem;">${editLink}</div>` : '');
+  return `<div id="player-title-info" style="flex:1;min-width:0;padding:0 10px;">
+    <div style="font-size:0.82rem;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(title)}</div>
+    ${line2}
+  </div>`;
+}
+
+function openEditMetadata(jobId) {
+  const item = libraryItems.find(i => i.id === jobId);
+  // Use library item (LLM-enriched) as primary source, same as _renderPlayerTitleInfo
+  const title = item?.title || currentJob?.title || '';
+  const artist = item?.artist || currentJob?.artist || '';
+  const year = item?.year || currentJob?.year || '';
+  const url = item?.url || currentJob?.url || '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-box" style="max-width:400px;text-align:left;">
+      <h3 style="color:var(--text-bright);margin:0 0 12px;font-size:1rem;">Edit Song Info</h3>
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Title</label>
+      <input type="text" id="meta-edit-title" value="${escapeHtml(title)}" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <div style="flex:1;">
+          <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Artist</label>
+          <input type="text" id="meta-edit-artist" value="${escapeHtml(artist)}" style="width:100%;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
+        </div>
+        <div style="width:80px;">
+          <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Year</label>
+          <input type="text" id="meta-edit-year" value="${escapeHtml(year)}" placeholder="e.g. 1978" maxlength="4" style="width:100%;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
+        </div>
+      </div>
+      ${url ? `<label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">YouTube URL</label>
+      <div style="display:flex;gap:4px;margin-bottom:14px;">
+        <input type="text" value="${escapeHtml(url)}" readonly style="flex:1;padding:6px 8px;background:var(--bg-base);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-family:inherit;font-size:0.78rem;cursor:text;" onclick="this.select()" />
+        <button class="admin-btn" style="padding:4px 10px;white-space:nowrap;" onclick="navigator.clipboard.writeText('${escapeHtml(url)}'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500);">Copy</button>
+      </div>` : ''}
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="admin-btn" onclick="this.closest('.confirm-overlay').remove()">Cancel</button>
+        <button class="btn-primary" style="padding:6px 20px;" onclick="saveEditMetadata('${jobId}')">Update</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('meta-edit-title').focus();
+}
+
+async function saveEditMetadata(jobId) {
+  const title = document.getElementById('meta-edit-title').value.trim();
+  const artist = document.getElementById('meta-edit-artist').value.trim();
+  const year = document.getElementById('meta-edit-year').value.trim();
+  if (!title) { showAlert('Title is required.'); return; }
+
+  try {
+    const resp = await fetch('/api/jobs/' + jobId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, artist: artist || null, year: year || null }),
+    });
+    if (!resp.ok) throw new Error();
+    const data = await resp.json();
+
+    // Update in-memory data (library item is the source of truth)
+    const item = libraryItems.find(i => i.id === jobId);
+    if (item) {
+      item.title = data.title;
+      item.artist = data.artist;
+      item.year = data.year;
+    }
+    if (currentJob && currentJob.id === jobId) {
+      currentJob.title = data.title;
+      currentJob.artist = data.artist;
+      currentJob.year = data.year;
+    }
+
+    // Update the title info in the player (re-render via helper)
+    const infoEl = document.getElementById('player-title-info');
+    if (infoEl) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = _renderPlayerTitleInfo(jobId);
+      infoEl.replaceWith(tmp.firstElementChild);
+    }
+
+    renderLibraryGrid();
+    document.querySelector('.confirm-overlay')?.remove();
+  } catch (e) {
+    showAlert('Failed to update');
+  }
+}
+
+let _currentPlayerTab = 'video'; // 'video' or 'subtitled'
+
 function renderTabs(jobId) {
-  const id = jobId || currentJob.id;
-  const jobMode = currentJob ? currentJob.mode : 'karaoke';
-  const subtitledTab = jobMode === 'both' ? `
-    <div class="tab" data-tab="subtitled" onclick="switchTab('subtitled','${id}')">
-      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-      Subtitled
-    </div>` : '';
-  const title = currentJob ? escapeHtml(currentJob.title || 'Karaoke Video') : 'Karaoke Video';
-  _tabsEl().innerHTML = `
-    <div class="tab active" data-tab="video" onclick="switchTab('video','${id}')">
-      ${title}
-    </div>
-    ${subtitledTab}
-  `;
+  _tabsEl().innerHTML = '';
+}
+
+function _isBothMode(jobId) {
+  const item = libraryItems.find(i => i.id === jobId);
+  return (item?.mode || currentJob?.mode) === 'both';
+}
+
+function flipPlayerMode(jobId) {
+  const nextTab = _currentPlayerTab === 'video' ? 'subtitled' : 'video';
+  const layout = document.querySelector('.player-overlay:not(.hidden) .player-layout');
+  if (!layout) { switchTab(nextTab, jobId); return; }
+
+  // Slide current view out to the left
+  layout.style.transition = 'transform 0.3s ease-in, opacity 0.3s ease-in';
+  layout.style.transform = 'translateX(-100%)';
+  layout.style.opacity = '0';
+
+  setTimeout(() => {
+    // Swap content while off-screen
+    switchTab(nextTab, jobId);
+
+    // Position new content off-screen to the right
+    layout.style.transition = 'none';
+    layout.style.transform = 'translateX(100%)';
+    layout.style.opacity = '0';
+
+    // Slide new view in from the right
+    requestAnimationFrame(() => {
+      layout.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
+      layout.style.transform = 'translateX(0)';
+      layout.style.opacity = '1';
+    });
+
+    // Clean up
+    setTimeout(() => { layout.style.transition = ''; }, 350);
+  }, 300);
 }
 
 let vocalsAudioEl = null;
@@ -3356,6 +3993,7 @@ function switchTab(tab, jobId) {
   const area = _playerAreaEl();
 
   // Clean up previous state
+  _stopLyricsRaf();
   if (activeMediaEl) {
     activeMediaEl.removeEventListener('timeupdate', onTimeUpdate);
     activeMediaEl.removeEventListener('play', onMediaPlay);
@@ -3366,83 +4004,109 @@ function switchTab(tab, jobId) {
   // Destroy vocals sync when leaving video tab
   if (tab !== 'video') destroyVocalsSync();
 
+  const dlIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+  const shareIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`;
+  const shareBtn = userCan('can_share_library') ? `<button class="player-share-btn" onclick="sharePlayer()" title="Copy link">${shareIcon}</button>` : '';
+
+  const flipBtn = _isBothMode(id) ? `<button class="karaoke-fullscreen-btn-inline" onclick="flipPlayerMode('${id}')" title="${tab === 'video' ? 'Subtitled Mode' : 'Karaoke Mode'}" style="font-size:0.7rem;font-weight:700;font-family:inherit;letter-spacing:0.02em;">CC</button>` : '';
+
   if (tab === 'video') {
+    _currentPlayerTab = 'video';
+    const dlBtn = userCan('can_download_karaoke') ? `<a class="btn-download-sm" href="/api/jobs/${id}/download/karaoke.mp4">${dlIcon} Download</a>` : '';
     area.innerHTML = `
       <div class="video-container" id="karaoke-video-container">
         <video id="media-el" controls preload="auto" src="/api/jobs/${id}/video" autoplay></video>
-        <div class="vocal-toggle">
-          <label class="toggle-switch" title="Toggle vocals">
-            <input type="checkbox" id="vocal-toggle-cb" onchange="toggleVocals(this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="toggle-label">Vocals</span>
-        </div>
-        <button class="karaoke-fullscreen-btn" onclick="toggleKaraokeFullscreen()" title="Fullscreen">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-        </button>
       </div>
       <div class="tab-download">
-        <a class="btn-download-sm" href="/api/jobs/${id}/download/karaoke.mp4">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download Karaoke Video
-        </a>
+        <div class="tab-download-left">
+          ${dlBtn}
+          <div class="vocal-toggle-inline">
+            <label class="toggle-switch" title="Toggle vocals">
+              <input type="checkbox" id="vocal-toggle-cb" onchange="toggleVocals(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Vocals</span>
+          </div>
+          <button class="karaoke-fullscreen-btn-inline" onclick="toggleKaraokeFullscreen()" title="Fullscreen">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
+          ${flipBtn}
+        </div>
+        ${_renderPlayerTitleInfo(id)}
         <div class="tab-download-right">
           <span class="vote-controls" data-vote-id="${id}">${renderVoteControls(id, _getVoteData(id, 'up'), _getVoteData(id, 'down'), _getVoteData(id, 'user'))}</span>
-          <button class="player-share-btn" onclick="sharePlayer()" title="Copy link">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-          </button>
+          ${shareBtn}
         </div>
       </div>`;
   } else if (tab === 'instrumental') {
+    const dlBtn = userCan('can_download_instrumental') ? `<a class="btn-download-sm" href="/api/jobs/${id}/download/instrumental.mp3">${dlIcon} Download Instrumental</a>` : '';
     area.innerHTML = `
       <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/instrumental"></audio>
-      <div class="tab-download">
-        <a class="btn-download-sm" href="/api/jobs/${id}/download/instrumental.mp3">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download Instrumental
-        </a>
-      </div>`;
+      <div class="tab-download">${dlBtn}</div>`;
   } else if (tab === 'subtitled') {
+    _currentPlayerTab = 'subtitled';
     // Subtitled tab for "both" mode — render YouTube player with subtitle overlay
-    const langs = currentJob.languages || (currentJob.language ? [currentJob.language] : []);
-    _lyricsPanelEl().innerHTML = '';
-    document.getElementById('lyrics-toggle').style.display = 'none';
-    renderSubtitledPlayer(id, currentJob.url, langs);
+    const _item = libraryItems.find(i => i.id === id);
+    const langs = _item?.languages || currentJob?.languages || (currentJob?.language ? [currentJob.language] : []);
+    const _url = _item?.url || currentJob?.url || '';
+    renderSubtitledPlayer(id, _url, langs);
+    renderLyrics();
+    const lyricsTabs = document.getElementById('lyrics-tabs');
+    if (lyricsTabs) {
+      lyricsTabs.style.display = (lyricsData && lyricsData.length > 0) ? 'flex' : 'none';
+      switchLyricsTab('live');
+    }
+    setTimeout(_syncPlayerHeight, 100);
     return;
   } else {
+    const dlBtn = userCan('can_download_vocals') ? `<a class="btn-download-sm" href="/api/jobs/${id}/download/vocals.mp3">${dlIcon} Download Vocals</a>` : '';
     area.innerHTML = `
       <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/vocals"></audio>
-      <div class="tab-download">
-        <a class="btn-download-sm" href="/api/jobs/${id}/download/vocals.mp3">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download Vocals
-        </a>
-      </div>`;
+      <div class="tab-download">${dlBtn}</div>`;
   }
 
   activeMediaEl = document.getElementById('media-el');
   activeMediaEl.addEventListener('timeupdate', onTimeUpdate);
   activeMediaEl.addEventListener('ended', _onPlayerEnded);
+  activeMediaEl.addEventListener('play', onMediaPlay);
+  activeMediaEl.addEventListener('pause', onMediaPause);
+  activeMediaEl.addEventListener('seeked', onMediaSeeked);
 
-  // Pre-load vocals audio for the video tab (must be after activeMediaEl is set)
-  if (tab === 'video') preloadVocalsAudio(id);
+  // Start lyrics RAF immediately if already playing (e.g. autoplay)
+  if (!activeMediaEl.paused) _startLyricsRaf();
+
+  // Pre-load vocals and auto-enable once video actually starts playing
+  if (tab === 'video') {
+    preloadVocalsAudio(id);
+    const cb = document.getElementById('vocal-toggle-cb');
+    if (cb) cb.checked = true;
+    // We can't call .play() on the vocals Audio until the user interacts.
+    // The video element has autoplay, but that doesn't grant play permission
+    // to a separate Audio object. So we hook into the video's first 'playing'
+    // event — by that point the browser has granted audio context permission.
+    const startVocalsOnce = () => {
+      activeMediaEl.removeEventListener('playing', startVocalsOnce);
+      if (vocalsAudioEl) {
+        vocalsAudioEl.volume = 1;
+        vocalsOn = true;
+        _playVocals();
+      }
+    };
+    activeMediaEl.addEventListener('playing', startVocalsOnce);
+  }
 
   renderLyrics();
 
-  // Show lyrics toggle if we have lyrics
-  const toggleBtn = document.getElementById('lyrics-toggle');
-  if (toggleBtn) {
-    toggleBtn.style.display = (lyricsData && lyricsData.length > 0) ? 'flex' : 'none';
-    // Restore collapse state
-    const panel = document.getElementById('overlay-lyrics-panel');
-    if (lyricsCollapsed) {
-      panel.classList.add('collapsed');
-      toggleBtn.classList.add('collapsed');
-    } else {
-      panel.classList.remove('collapsed');
-      toggleBtn.classList.remove('collapsed');
-    }
+  // Show lyrics tabs if we have lyrics
+  const lyricsTabs = document.getElementById('lyrics-tabs');
+  if (lyricsTabs) {
+    lyricsTabs.style.display = (lyricsData && lyricsData.length > 0) ? 'flex' : 'none';
+    // Reset to Live Lyrics tab
+    switchLyricsTab('live');
   }
+
+  // Sync lyrics pane height to player
+  setTimeout(_syncPlayerHeight, 100);
 }
 
 // --- Vocal toggle sync ---
@@ -3456,26 +4120,19 @@ function preloadVocalsAudio(jobId) {
   vocalsAudioEl.preload = 'auto';
   vocalsAudioEl.volume = 0;
   // Just preload — don't play until user interaction
-
-  activeMediaEl.addEventListener('play', onMediaPlay);
-  activeMediaEl.addEventListener('pause', onMediaPause);
-  activeMediaEl.addEventListener('seeked', onMediaSeeked);
 }
 
 function toggleVocals(on) {
   vocalsOn = on;
-  _syncedOnce = false;
   if (!vocalsAudioEl || !activeMediaEl) return;
 
-  if (on) {
+  if (on && !activeMediaEl.paused) {
     vocalsAudioEl.volume = 1;
-    vocalsAudioEl.currentTime = activeMediaEl.currentTime + VOCALS_OFFSET;
-    if (!activeMediaEl.paused) {
-      vocalsAudioEl.play().catch(() => {});
-    }
+    _playVocals();
   } else {
-    vocalsAudioEl.volume = 0;
+    // Either toggled off, or video is paused — ensure vocals are silent & stopped
     vocalsAudioEl.pause();
+    if (!on) vocalsAudioEl.volume = 0;
   }
 }
 
@@ -3494,48 +4151,94 @@ function destroyVocalsSync() {
   }
 }
 
+function _playVocals() {
+  if (!vocalsAudioEl || !vocalsOn || !activeMediaEl) return;
+  vocalsAudioEl.currentTime = activeMediaEl.currentTime + VOCALS_OFFSET;
+  vocalsAudioEl.play().then(() => {
+    // Guard: if video was paused while play() was resolving, re-pause vocals
+    if (activeMediaEl && activeMediaEl.paused) vocalsAudioEl.pause();
+  }).catch(() => {});
+}
+
 function onMediaPlay() {
-  if (vocalsAudioEl && vocalsOn) {
-    vocalsAudioEl.currentTime = activeMediaEl.currentTime + VOCALS_OFFSET;
-    vocalsAudioEl.play().catch(() => {});
-  }
+  if (vocalsAudioEl && vocalsOn) _playVocals();
+  _startLyricsRaf();
 }
 
 function onMediaPause() {
   if (vocalsAudioEl) {
     vocalsAudioEl.pause();
+    vocalsAudioEl.removeAttribute('autoplay');
   }
+  _stopLyricsRaf();
+  // One final update at the paused position
+  if (activeMediaEl) updateLyricsHighlight(activeMediaEl.currentTime);
 }
 
-function onMediaSeeked() {
-  _syncedOnce = false;
-  if (vocalsAudioEl && vocalsOn) {
-    vocalsAudioEl.currentTime = activeMediaEl.currentTime + VOCALS_OFFSET;
-    if (!activeMediaEl.paused) {
-      vocalsAudioEl.play().catch(() => {});
-    }
+// Failsafe: periodically check if vocals are out of sync with video pause state
+setInterval(() => {
+  if (!vocalsAudioEl || !activeMediaEl || !vocalsOn) return;
+  if (activeMediaEl.paused && !vocalsAudioEl.paused) {
+    vocalsAudioEl.pause();
   }
+}, 500);
+
+function onMediaSeeked() {
+  if (vocalsAudioEl && vocalsOn && !activeMediaEl.paused) {
+    _playVocals();
+  }
+  // Immediately update highlight at seek position
+  if (activeMediaEl) updateLyricsHighlight(activeMediaEl.currentTime);
 }
 
 // ---- Synced Lyrics ----
 
-const WORDS_PER_LINE = 6;
+const LINE_GAP_THRESHOLD = 0.3; // seconds — gap between words that triggers a new line
+const MAX_WORDS_PER_LINE = 10;  // hard limit to prevent overly long lines
 let lyricsLines = [];
 let currentLineIdx = -1;
+let _lyricsScrollEl = null;
+
+function _groupWordsIntoLines(words) {
+  // Group words into lines based on timing gaps between consecutive words
+  const lines = [];
+  let currentLine = [];
+
+  for (let i = 0; i < words.length; i++) {
+    currentLine.push(words[i]);
+
+    const isLast = i === words.length - 1;
+    const gap = !isLast ? words[i + 1].start - words[i].end : 0;
+    const atMaxLength = currentLine.length >= MAX_WORDS_PER_LINE;
+
+    if (isLast || gap >= LINE_GAP_THRESHOLD || atMaxLength) {
+      lines.push([...currentLine]);
+      currentLine = [];
+    }
+  }
+  return lines;
+}
 
 function renderLyrics() {
   const panel = _lyricsPanelEl();
   panel.innerHTML = '';
   lyricsLines = [];
   currentLineIdx = -1;
+  _lyricsScrollEl = null;
 
   if (!lyricsData || lyricsData.length === 0) {
     panel.innerHTML = '<p style="color:#666">No lyrics available</p>';
     return;
   }
 
-  for (let i = 0; i < lyricsData.length; i += WORDS_PER_LINE) {
-    const chunk = lyricsData.slice(i, i + WORDS_PER_LINE);
+  // Create scroll container
+  const scrollInner = document.createElement('div');
+  scrollInner.className = 'lyrics-scroll-inner';
+  _lyricsScrollEl = scrollInner;
+
+  const grouped = _groupWordsIntoLines(lyricsData);
+
+  for (const chunk of grouped) {
     const lineEl = document.createElement('div');
     lineEl.className = 'lyrics-line';
 
@@ -3549,27 +4252,19 @@ function renderLyrics() {
       lineData.words.push({ ...w, el: span });
     });
 
-    panel.appendChild(lineEl);
+    scrollInner.appendChild(lineEl);
     lyricsLines.push(lineData);
   }
+
+  panel.appendChild(scrollInner);
 }
 
-let _syncedOnce = false;
-const VOCALS_OFFSET = 0.15; // seconds — compensate for MP3 encoder padding
+const VOCALS_OFFSET = 0.42; // seconds — compensate for MP3 encoder padding (positive = vocals seek ahead)
+const VOCALS_DRIFT_THRESHOLD = 0.5; // only correct if drift exceeds 500ms
+let _lastDriftCorrection = 0; // timestamp of last correction
 
-function onTimeUpdate() {
-  // One-time sync correction after playback starts
-  if (vocalsAudioEl && vocalsOn && !activeMediaEl.paused && !_syncedOnce) {
-    const expected = activeMediaEl.currentTime + VOCALS_OFFSET;
-    const drift = expected - vocalsAudioEl.currentTime;
-    if (Math.abs(drift) > 0.1) {
-      vocalsAudioEl.currentTime = expected;
-    }
-    _syncedOnce = true;
-  }
-
-  if (!activeMediaEl || !lyricsLines.length) return;
-  const t = activeMediaEl.currentTime;
+function updateLyricsHighlight(t) {
+  if (!lyricsLines.length) return;
 
   let activeLine = -1;
 
@@ -3583,6 +4278,8 @@ function onTimeUpdate() {
 
     if (t > lineEnd + 0.5) {
       line.el.className = 'lyrics-line past';
+    } else if (isCurrentLine) {
+      line.el.className = 'lyrics-line active-line';
     } else {
       line.el.className = 'lyrics-line';
     }
@@ -3598,21 +4295,62 @@ function onTimeUpdate() {
     }
   }
 
-  if (activeLine >= 0 && activeLine !== currentLineIdx) {
+  // Smooth scroll — translate the inner container so active line is centered
+  if (activeLine >= 0 && activeLine !== currentLineIdx && _lyricsScrollEl) {
     currentLineIdx = activeLine;
     const panel = _lyricsPanelEl();
     const lineEl = lyricsLines[activeLine].el;
-    const panelRect = panel.getBoundingClientRect();
-    const lineRect = lineEl.getBoundingClientRect();
-    const offset = lineRect.top - panelRect.top - panelRect.height / 3;
-    panel.scrollTop += offset;
+    const panelH = panel.clientHeight;
+    const lineTop = lineEl.offsetTop;
+    const lineH = lineEl.offsetHeight;
+    // Position active line ~30% from the top (room for 3-4 sung lines above)
+    const targetY = Math.min(0, -(lineTop - panelH * 0.3 + lineH / 2));
+    _lyricsScrollEl.style.transform = `translateY(${targetY}px)`;
   }
+}
+
+let _lyricsRafId = null;
+
+function _lyricsRafLoop() {
+  if (!activeMediaEl) { _lyricsRafId = null; return; }
+  updateLyricsHighlight(activeMediaEl.currentTime);
+  _lyricsRafId = requestAnimationFrame(_lyricsRafLoop);
+}
+
+function _startLyricsRaf() {
+  if (!_lyricsRafId) _lyricsRafId = requestAnimationFrame(_lyricsRafLoop);
+}
+
+function _stopLyricsRaf() {
+  if (_lyricsRafId) { cancelAnimationFrame(_lyricsRafId); _lyricsRafId = null; }
+}
+
+function onTimeUpdate() {
+  // Drift correction for vocal sync — only when severely out of sync, at most once per 5s
+  if (vocalsAudioEl && vocalsOn && !activeMediaEl.paused) {
+    const now = performance.now();
+    if (now - _lastDriftCorrection > 5000) {
+      const expected = activeMediaEl.currentTime + VOCALS_OFFSET;
+      const drift = vocalsAudioEl.currentTime - expected;
+      if (Math.abs(drift) > VOCALS_DRIFT_THRESHOLD) {
+        vocalsAudioEl.currentTime = expected;
+      }
+      _lastDriftCorrection = now;
+    }
+  }
+
+  // Fallback lyrics update if RAF isn't running
+  if (!_lyricsRafId && activeMediaEl) {
+    updateLyricsHighlight(activeMediaEl.currentTime);
+  }
+  // Ensure RAF is running when media is playing
+  if (activeMediaEl && !activeMediaEl.paused) _startLyricsRaf();
 }
 
 // ---- Library ----
 
 let libraryItems = [];
-let libraryFilters = { search: '', channels: new Set(), categories: new Set(), types: new Set() };
+let libraryFilters = { search: '', categories: new Set(), types: new Set(), sort: 'recent' };
 
 async function loadLibrary() {
   const main = document.getElementById('library-main');
@@ -3622,6 +4360,7 @@ async function loadLibrary() {
     const resp = await fetch('/api/library');
     const data = await resp.json();
     libraryItems = data.items || [];
+    _lastLibraryCount = libraryItems.length;
 
     if (libraryItems.length === 0) {
       document.getElementById('library-filter-bar').innerHTML = '';
@@ -3634,28 +4373,25 @@ async function loadLibrary() {
       return;
     }
 
-    libraryFilters = { search: '', channels: new Set(), categories: new Set(), types: new Set() };
+    libraryFilters = { search: '', categories: new Set(), types: new Set(), sort: 'recent' };
     renderLibraryFilterBar();
     renderLibraryGrid();
   } catch (e) {
-    main.innerHTML = '<p style="text-align:center; color:#e07050;">Failed to load library</p>';
+    main.innerHTML = '<p style="text-align:center; color:#e07050;">Failed to load jukebox</p>';
   }
 }
 
 function renderLibraryFilterBar() {
   const bar = document.getElementById('library-filter-bar');
 
-  // Collect facets
-  const channelCounts = {};
+  // Collect type facets
   const typeCounts = {};
   for (const item of libraryItems) {
-    if (item.channel) channelCounts[item.channel] = (channelCounts[item.channel] || 0) + 1;
     const m = item.mode || 'karaoke';
     const type = m === 'subtitled' ? 'Subtitled' : 'Karaoke';
     typeCounts[type] = (typeCounts[type] || 0) + 1;
   }
 
-  const channels = Object.keys(channelCounts).sort();
   const types = Object.keys(typeCounts).sort();
 
   // Type tabs in header row
@@ -3664,25 +4400,32 @@ function renderLibraryFilterBar() {
   const libraryActive = activeType === '';
   const typeTabs = types.map(t => {
     const isActive = t === activeType;
-    return `<span class="divider-pipe">|</span><button class="filter-tab ${isActive ? 'active' : ''}" onclick="setFilterType('${t}'); renderLibraryFilterBar(); renderLibraryGrid()">${t.toUpperCase()}</button>`;
+    return `<span class="divider-pipe">|</span><button class="filter-tab ${isActive && !_wishlistActive ? 'active' : ''}" onclick="_wishlistActive=false; setFilterType('${t}'); renderLibraryFilterBar(); renderLibraryGrid()">${t.toUpperCase()}</button>`;
   }).join('');
   tabsEl.innerHTML = `
     <div class="library-tabs">
-      <button class="filter-tab library-tab ${libraryActive ? 'active' : ''}" onclick="setFilterType(''); renderLibraryFilterBar(); renderLibraryGrid()">LIBRARY</button>
+      <button class="filter-tab library-tab ${libraryActive && !_wishlistActive ? 'active' : ''}" onclick="_wishlistActive=false; setFilterType(''); renderLibraryFilterBar(); renderLibraryGrid()">JUKEBOX</button>
       ${types.length > 0 ? typeTabs : ''}
+      ${appSettings.feature_wishlist ? `<span class="divider-pipe">|</span><button class="filter-tab ${_wishlistActive ? 'active' : ''}" onclick="showWishlistTab()">REQUESTS</button>` : ''}
     </div>`;
 
-  // Channel dropdown + search
-  const channelOpts = channels.length > 1
-    ? `<select onchange="setFilterChannel(this.value); renderLibraryGrid()">
-         <option value="">All channels</option>
-         ${channels.map(ch => `<option value="${escapeHtml(ch)}" ${libraryFilters.channels.has(ch) ? 'selected' : ''}>${escapeHtml(ch)}</option>`).join('')}
-       </select>` : '';
+  if (_wishlistActive) {
+    renderWishlistFilterBar();
+    return;
+  }
 
+  // Sort dropdown + search
+  const s = libraryFilters.sort;
   bar.innerHTML = `
     <input type="text" placeholder="Search..." value="${escapeHtml(libraryFilters.search)}"
            oninput="libraryFilters.search=this.value; renderLibraryGrid()" />
-    ${channelOpts}
+    <select onchange="libraryFilters.sort=this.value; renderLibraryGrid()">
+      <option value="recent" ${s === 'recent' ? 'selected' : ''}>Most Recent</option>
+      <option value="liked" ${s === 'liked' ? 'selected' : ''}>Most Liked</option>
+      <option value="viewed" ${s === 'viewed' ? 'selected' : ''}>Most Viewed</option>
+      <option value="az" ${s === 'az' ? 'selected' : ''}>A \u2013 Z</option>
+      <option value="za" ${s === 'za' ? 'selected' : ''}>Z \u2013 A</option>
+    </select>
   `;
 }
 
@@ -3690,9 +4433,6 @@ function setFilterType(val) {
   libraryFilters.types = val ? new Set([val]) : new Set();
 }
 
-function setFilterChannel(val) {
-  libraryFilters.channels = val ? new Set([val]) : new Set();
-}
 
 function toggleFilter(facet, value) {
   const set = libraryFilters[facet];
@@ -3703,7 +4443,7 @@ function toggleFilter(facet, value) {
 }
 
 function clearFilters() {
-  libraryFilters = { search: '', channels: new Set(), categories: new Set(), types: new Set() };
+  libraryFilters = { search: '', categories: new Set(), types: new Set(), sort: 'recent' };
   renderLibraryFilterBar();
   renderLibraryGrid();
 }
@@ -3714,12 +4454,12 @@ async function deleteJob(jobId) {
     const resp = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
-      alert(data.detail || 'Failed to delete');
+      showAlert(data.detail || 'Failed to delete');
       return;
     }
     loadLibrary();
   } catch (e) {
-    alert('Error: ' + e.message);
+    showAlert('Error: ' + e.message);
   }
 }
 
@@ -3727,14 +4467,12 @@ function renderLibraryGrid() {
   const main = document.getElementById('library-main');
   const query = libraryFilters.search.toLowerCase();
 
-  const filtered = libraryItems.filter(item => {
+  let filtered = libraryItems.filter(item => {
     // Text search
     if (query) {
       const haystack = [item.title, item.channel, ...(item.tags || [])].filter(Boolean).join(' ').toLowerCase();
       if (!haystack.includes(query)) return false;
     }
-    // Channel filter
-    if (libraryFilters.channels.size > 0 && !libraryFilters.channels.has(item.channel)) return false;
     // Category filter
     if (libraryFilters.categories.size > 0) {
       const cats = item.categories || [];
@@ -3755,6 +4493,19 @@ function renderLibraryGrid() {
     filtered = filtered.filter(item => playlistJobIds.has(item.id));
   }
 
+  // Sort
+  const sortBy = libraryFilters.sort;
+  if (sortBy === 'liked') {
+    filtered.sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0));
+  } else if (sortBy === 'viewed') {
+    filtered.sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
+  } else if (sortBy === 'az') {
+    filtered.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  } else if (sortBy === 'za') {
+    filtered.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
+  }
+  // 'recent' is the default order from the API (already sorted by finished_at desc)
+
   if (filtered.length === 0) {
     main.innerHTML = `
       <div class="library-results-count">${libraryItems.length} songs, 0 matching</div>
@@ -3766,7 +4517,7 @@ function renderLibraryGrid() {
   const count = '';
   const grid = filtered.map(item => {
     const duration = item.audio_duration ? formatDuration(item.audio_duration) : '';
-    const channel = item.channel ? escapeHtml(item.channel) : '';
+    const channel = item.artist ? escapeHtml(item.artist) : (item.channel ? escapeHtml(item.channel) : '');
     const date = item.upload_date
       ? item.upload_date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')
       : '';
@@ -3781,25 +4532,30 @@ function renderLibraryGrid() {
       badgeText += ' \u00b7 ' + langs.map(c => (LANG_NAMES_ALL[c] || c)).join(', ');
     }
     return `
-      <div class="library-item" onclick="showPlayerForJob('${item.id}')" style="position:relative;">
+      <div class="library-item" onclick="showPlayerForJob('${item.id}')">
         <div class="library-item-header">
           ${thumb}
           <span class="library-mode-badge ${badgeClass}">${badgeText}</span>
-          <button class="library-delete-btn" onclick="event.stopPropagation(); deleteJob('${item.id}')" title="Delete">
+          ${userCan('can_delete_library') ? `<button class="library-delete-btn" onclick="event.stopPropagation(); deleteJob('${item.id}')" title="Delete">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          </button>
+          </button>` : ''}
         </div>
         <div class="library-info">
           <h3>${escapeHtml(item.title || 'Unknown')}</h3>
           ${channel ? `<div class="channel">${channel}</div>` : ''}
-          <span class="meta">${duration || ''} <span class="vote-controls-compact" data-vote-id="${item.id}">${renderVoteControlsCompact(item.id, item.upvotes, item.downvotes, item.user_vote)}</span>${item.comment_count > 0 ? `<span class="comment-count-badge" onclick="event.stopPropagation(); showPlayerForJob('${item.id}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> ${item.comment_count}</span>` : ''}</span>
+          <div class="info-spacer"></div>
+          <div class="meta-row">
+            <span class="meta">${duration || ''} <span class="vote-controls-compact" data-vote-id="${item.id}">${renderVoteControlsCompact(item.id, item.upvotes, item.downvotes, item.user_vote)}</span>${item.comment_count > 0 ? `<span class="comment-count-badge" onclick="event.stopPropagation(); showPlayerForJob('${item.id}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> ${item.comment_count}</span>` : ''}</span>
+            <div class="meta-actions">
+              ${currentUser ? `<button class="library-playlist-btn" onclick="togglePlaylistDropdown('${item.id}', event)" title="Add to playlist">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>` : ''}
+              ${userCan('can_share_library') ? `<button class="library-share-btn" onclick="event.stopPropagation(); shareLink('${item.id}')" title="Copy link">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+              </button>` : ''}
+            </div>
+          </div>
         </div>
-        <button class="library-share-btn" onclick="event.stopPropagation(); shareLink('${item.id}')" title="Copy link">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        </button>
-        ${currentUser ? `<button class="library-playlist-btn" onclick="togglePlaylistDropdown('${item.id}', event)" title="Add to playlist">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>` : ''}
       </div>
     `;
   }).join('');
@@ -3821,6 +4577,23 @@ function showConfirm(message) {
     overlay.querySelector('.confirm-cancel').onclick = () => { overlay.remove(); resolve(false); };
     overlay.querySelector('.confirm-ok').onclick = () => { overlay.remove(); resolve(true); };
     overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); resolve(false); } };
+    document.body.appendChild(overlay);
+    overlay.querySelector('.confirm-ok').focus();
+  });
+}
+
+function showAlert(message) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.innerHTML = `<div class="confirm-box">
+      <p>${escapeHtml(message)}</p>
+      <div class="confirm-btns">
+        <button class="confirm-ok">Close</button>
+      </div>
+    </div>`;
+    overlay.querySelector('.confirm-ok').onclick = () => { overlay.remove(); resolve(); };
+    overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); resolve(); } };
     document.body.appendChild(overlay);
     overlay.querySelector('.confirm-ok').focus();
   });
@@ -3949,6 +4722,38 @@ function sharePlayer() {
 }
 
 let currentUser = null;
+let appSettings = { allowed_modes: ['karaoke', 'subtitled', 'both'], feature_translation: true, feature_analysis: true, feature_wishlist: true };
+let wishlistItems = [];
+let wishlistFilters = { search: '', sort: 'votes' };
+let _wishlistActive = false;
+
+function userCan(perm) {
+  if (!currentUser) return false;
+  if (currentUser.role === 'admin') return true;
+  if (!currentUser.permissions) return true;
+  return currentUser.permissions[perm] !== false;
+}
+
+function applyAppSettings() {
+  // Hide/show mode checkboxes based on allowed_modes
+  const modes = appSettings.allowed_modes || [];
+  const karaokeLabel = document.getElementById('mode-karaoke')?.closest('label');
+  const subtitledLabel = document.getElementById('mode-subtitled')?.closest('label');
+  if (karaokeLabel) karaokeLabel.style.display = modes.includes('karaoke') || modes.includes('both') ? '' : 'none';
+  if (subtitledLabel) subtitledLabel.style.display = modes.includes('subtitled') || modes.includes('both') ? '' : 'none';
+
+  // If current mode selection is no longer allowed, reset
+  const k = document.getElementById('mode-karaoke');
+  const s = document.getElementById('mode-subtitled');
+  if (k && !modes.includes('karaoke') && !modes.includes('both')) k.checked = false;
+  if (s && !modes.includes('subtitled') && !modes.includes('both')) s.checked = false;
+  // Ensure at least one mode is selected
+  if (k && s && !k.checked && !s.checked) {
+    if (modes.includes('karaoke') || modes.includes('both')) k.checked = true;
+    else if (modes.includes('subtitled')) s.checked = true;
+  }
+  if (typeof onModeChange === 'function') onModeChange();
+}
 
 
 function renderUserMenu() {
@@ -4197,12 +5002,12 @@ async function submitFeedback(e) {
   e.preventDefault();
   const formData = new FormData();
   const subject = document.getElementById('feedback-subject').value;
-  if (!subject) { alert('Please select a type.'); return; }
+  if (!subject) { showAlert('Please select a type.'); return; }
   formData.append('subject', subject);
   formData.append('description', document.getElementById('feedback-desc').value);
   const file = document.getElementById('feedback-file').files[0];
   if (file) {
-    if (file.size > 5 * 1024 * 1024) { alert('Screenshot must be under 5MB.'); return; }
+    if (file.size > 5 * 1024 * 1024) { showAlert('Screenshot must be under 5MB.'); return; }
     formData.append('screenshot', file);
   }
   try {
@@ -4218,7 +5023,7 @@ async function submitFeedback(e) {
         <button class="btn-primary" style="margin-top:16px;width:auto;padding:8px 24px;" onclick="closeFeedback()">Close</button>
       </div>
     `;
-  } catch (err) { alert('Failed to submit feedback.'); }
+  } catch (err) { showAlert('Failed to submit feedback.'); }
 }
 
 let _adminFeedbackFilter = 'all';
@@ -4242,6 +5047,9 @@ function switchAdminTab(tab) {
   else if (tab === 'feedback') loadAdminFeedback();
   else if (tab === 'comments') loadAdminComments();
   else if (tab === 'invitations') loadAdminInvitations();
+  else if (tab === 'prompts') loadAdminPrompts();
+  else if (tab === 'wishlist') loadAdminWishlist();
+  else if (tab === 'settings') loadAdminSettings();
 }
 
 async function loadAdminStats() {
@@ -4255,9 +5063,9 @@ async function loadAdminStats() {
       { val: s.songs, label: 'Songs' },
       { val: s.storage_mb + ' MB', label: 'Storage' },
       { val: s.comments, label: 'Comments' },
-      { val: s.feedback_new, label: 'New Feedback' },
+      { val: s.feedback_new, label: 'Feedback' },
       { val: s.queue_length, label: 'Queue' },
-    ].map(d => `<div class="admin-stat"><div class="val">${d.val}</div><div class="label">${d.label}</div></div>`).join('');
+    ].map(d => `<div class="admin-stat-group"><div class="admin-stat-label">${d.label}</div><div class="admin-stat"><div class="val">${d.val}</div></div></div>`).join('');
   } catch (e) { el.innerHTML = ''; }
 }
 
@@ -4265,8 +5073,35 @@ async function loadAdminUsers() {
   const container = document.getElementById('admin-tab-users');
   try {
     const resp = await fetch('/api/admin/users');
+    if (!resp.ok) throw new Error('Server returned ' + resp.status);
     const data = await resp.json();
-    container.innerHTML = `<div class="admin-section">${data.users.map(u => {
+    container.innerHTML = `<div style="margin-bottom:12px;text-align:right;">
+      <button class="admin-btn" onclick="toggleCreateUserForm()" style="padding:5px 16px;">+ Create User</button>
+    </div>
+    <div id="admin-create-user-form" style="display:none;padding:12px;margin-bottom:12px;background:var(--bg-base);border:1px solid var(--border);border-radius:8px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.8rem;">
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">Name
+          <input type="text" id="admin-new-user-name" placeholder="Full name" style="width:100%;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">Email
+          <input type="email" id="admin-new-user-email" placeholder="user@example.com" style="width:100%;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">Password
+          <input type="password" id="admin-new-user-password" placeholder="Password" style="width:100%;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">Role
+          <select id="admin-new-user-role" style="width:100%;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;">
+            <option value="user">Standard User</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+      </div>
+      <div style="margin-top:10px;text-align:right;">
+        <button class="admin-btn" onclick="toggleCreateUserForm()" style="padding:5px 16px;margin-right:6px;">Cancel</button>
+        <button class="admin-btn" onclick="adminCreateUser()" style="padding:5px 16px;">Create</button>
+      </div>
+    </div>
+    <div class="admin-section">${data.users.map(u => {
       const lastLogin = u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never';
       const joined = u.created_at ? new Date(u.created_at).toLocaleDateString() : '';
       const p = u.permissions || {};
@@ -4275,17 +5110,23 @@ async function loadAdminUsers() {
           <div style="flex:1;min-width:0;">
             <span class="name">${escapeHtml(u.name)}</span>
             <span class="email" style="margin-left:6px;">${escapeHtml(u.email)}</span>
-            <div class="meta">Joined ${joined} &middot; Last login ${lastLogin}</div>
+            <div class="meta">Joined ${joined} &middot; Last login ${lastLogin} &middot; ${u.invites_sent ?? 0} invite${(u.invites_sent ?? 0) !== 1 ? 's' : ''} sent</div>
           </div>
-          <span class="role-badge ${u.role}">${u.role}</span>
           <div class="admin-row-actions">
-            <button class="admin-btn" onclick="toggleAdminPerms('${u.id}')" title="Permissions">&#9881;</button>
-            <button class="admin-btn" onclick="adminToggleRole('${u.id}', '${u.role}')">${u.role === 'admin' ? 'Demote' : 'Promote'}</button>
+            ${u.role !== 'admin' ? `<button class="admin-btn" onclick="toggleAdminPerms('${u.id}')" title="Permissions" style="font-size:1rem;padding:3px 6px;">&#9881;</button>` : ''}
+            <select class="admin-role-select" onchange="adminChangeRole('${u.id}', this.value)">
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+              <option value="user" ${u.role === 'user' ? 'selected' : ''}>Standard User</option>
+            </select>
             <button class="admin-btn danger" onclick="adminDeleteUser('${u.id}', '${escapeHtml(u.name)}')">&times;</button>
           </div>
         </div>
+        ${u.role === 'admin' ? `
         <div class="admin-perms" id="admin-perms-${u.id}" style="display:none;padding:10px 12px;background:var(--bg-base);border-top:1px solid var(--border-light);">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:0.75rem;">
+          <span style="font-size:0.75rem;color:var(--text-dim);">Full access - no permission restrictions apply to Admin users.</span>
+        </div>` : `
+        <div class="admin-perms" id="admin-perms-${u.id}" style="display:none;padding:10px 12px;background:var(--bg-base);border-top:1px solid var(--border-light);">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.75rem;">
             <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">
               Max Karaoke/day
               <input type="number" min="0" value="${p.max_karaoke_per_day ?? 5}" id="perm-karaoke-${u.id}"
@@ -4301,6 +5142,14 @@ async function loadAdminUsers() {
               <input type="number" min="0" value="${p.max_queue_length ?? 10}" id="perm-queue-${u.id}"
                 style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
             </label>
+            <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">
+              Max Invitations
+              <select id="perm-invitations-${u.id}" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;">
+                <option value="5" ${(p.max_invitations ?? 5) === 5 ? 'selected' : ''}>5</option>
+                <option value="20" ${p.max_invitations === 20 ? 'selected' : ''}>20</option>
+                <option value="0" ${p.max_invitations === 0 ? 'selected' : ''}>Unlimited</option>
+              </select>
+            </label>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:0.75rem;">
             <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
@@ -4313,16 +5162,19 @@ async function loadAdminUsers() {
               <input type="checkbox" ${p.can_download_vocals !== false ? 'checked' : ''} id="perm-dl-vocals-${u.id}" style="accent-color:var(--accent);" /> Download Vocals
             </label>
             <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
-              <input type="checkbox" ${p.can_delete_library ? 'checked' : ''} id="perm-delete-${u.id}" style="accent-color:var(--accent);" /> Delete Library
+              <input type="checkbox" ${p.can_delete_library ? 'checked' : ''} id="perm-delete-${u.id}" style="accent-color:var(--accent);" /> Delete from Jukebox
             </label>
             <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
-              <input type="checkbox" ${p.can_share_library !== false ? 'checked' : ''} id="perm-share-${u.id}" style="accent-color:var(--accent);" /> Share Library
+              <input type="checkbox" ${p.can_share_library !== false ? 'checked' : ''} id="perm-share-${u.id}" style="accent-color:var(--accent);" /> Share from Jukebox
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;">
+              <input type="checkbox" ${p.can_request_songs !== false ? 'checked' : ''} id="perm-request-songs-${u.id}" style="accent-color:var(--accent);" /> Request Songs
             </label>
           </div>
           <div style="margin-top:10px;text-align:right;">
             <button class="admin-btn" style="padding:5px 16px;" onclick="saveAdminPerms('${u.id}')">Save Permissions</button>
           </div>
-        </div>
+        </div>`}
       </div>`;
     }).join('') || '<p style="color:var(--text-dim);padding:16px;">No users.</p>'}</div>`;
   } catch (e) { container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load users.</p>'; }
@@ -4343,6 +5195,8 @@ async function saveAdminPerms(userId) {
     can_download_vocals: document.getElementById(`perm-dl-vocals-${userId}`).checked,
     can_delete_library: document.getElementById(`perm-delete-${userId}`).checked,
     can_share_library: document.getElementById(`perm-share-${userId}`).checked,
+    can_request_songs: document.getElementById(`perm-request-songs-${userId}`).checked,
+    max_invitations: parseInt(document.getElementById(`perm-invitations-${userId}`).value),
   };
   const resp = await fetch(`/api/admin/users/${userId}/permissions`, {
     method: 'PUT',
@@ -4352,12 +5206,11 @@ async function saveAdminPerms(userId) {
   if (resp.ok) {
     loadAdminUsers();
   } else {
-    alert('Failed to save permissions');
+    showAlert('Failed to save permissions');
   }
 }
 
-async function adminToggleRole(userId, currentRole) {
-  const newRole = currentRole === 'admin' ? 'user' : 'admin';
+async function adminChangeRole(userId, newRole) {
   await fetch(`/api/admin/users/${userId}/role?role=${newRole}`, { method: 'PUT' });
   loadAdminUsers();
   loadAdminStats();
@@ -4368,11 +5221,40 @@ async function adminDeleteUser(userId, name) {
   const resp = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    alert(err.detail || 'Failed to delete user');
+    showAlert(err.detail || 'Failed to delete user');
     return;
   }
   loadAdminUsers();
   loadAdminStats();
+}
+
+function toggleCreateUserForm() {
+  const form = document.getElementById('admin-create-user-form');
+  if (form) form.style.display = form.style.display === 'none' ? '' : 'none';
+}
+
+async function adminCreateUser() {
+  const name = document.getElementById('admin-new-user-name').value.trim();
+  const email = document.getElementById('admin-new-user-email').value.trim();
+  const password = document.getElementById('admin-new-user-password').value;
+  const role = document.getElementById('admin-new-user-role').value;
+  if (!name || !email || !password) {
+    showAlert('Please fill in all fields');
+    return;
+  }
+  const resp = await fetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password, role }),
+  });
+  if (resp.ok) {
+    toggleCreateUserForm();
+    loadAdminUsers();
+    loadAdminStats();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showAlert(err.detail || 'Failed to create user');
+  }
 }
 
 async function loadAdminFeedback() {
@@ -4463,16 +5345,317 @@ async function loadAdminInvitations() {
     const invites = data.invitations || [];
     container.innerHTML = `<div class="admin-section">${invites.map(i => {
       const timeStr = i.created_at ? new Date(i.created_at).toLocaleDateString() : '';
-      const statusColor = i.status === 'accepted' ? 'var(--success)' : 'var(--text-muted)';
-      return `<div class="admin-row">
+      const expired = i.expires_at && new Date(i.expires_at) < new Date();
+      const statusLabel = i.status === 'accepted' ? 'accepted' : expired ? 'expired' : 'pending';
+      const statusColor = i.status === 'accepted' ? 'var(--success)' : expired ? 'var(--error)' : 'var(--text-muted)';
+      const expiresStr = i.expires_at ? new Date(i.expires_at).toLocaleDateString() : '';
+      const inviteLink = location.origin + '/login?invite=' + encodeURIComponent(i.token);
+      const showCopy = i.status !== 'accepted';
+      return `<div class="admin-row" style="flex-wrap:wrap;gap:6px;">
         <div style="flex:1;min-width:0;">
           <span class="name">${escapeHtml(i.email)}</span>
           <span class="meta" style="margin-left:6px;">invited by ${escapeHtml(i.inviter_name || 'Unknown')} &middot; ${timeStr}</span>
+          ${expiresStr ? `<span class="meta" style="margin-left:6px;">&middot; expires ${expiresStr}</span>` : ''}
+          ${showCopy ? `<div style="margin-top:4px;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:0.7rem;color:var(--text-muted);word-break:break-all;font-family:monospace;">${escapeHtml(inviteLink)}</span>
+            <button onclick="copyInviteLink(this,'${escapeHtml(inviteLink)}')" style="padding:3px 8px;font-size:0.7rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--border);border-radius:5px;cursor:pointer;font-family:inherit;white-space:nowrap;" title="Copy invite link">Copy Link</button>
+          </div>` : ''}
         </div>
-        <span class="role-badge" style="color:${statusColor};background:rgba(255,255,255,0.05);">${i.status}</span>
+        <span class="role-badge" style="color:${statusColor};background:rgba(255,255,255,0.05);">${statusLabel}</span>
       </div>`;
     }).join('') || '<p style="color:var(--text-dim);padding:16px;">No invitations.</p>'}</div>`;
   } catch (e) { container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load invitations.</p>'; }
+}
+
+function copyInviteLink(btn, link) {
+  navigator.clipboard.writeText(link).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.color = 'var(--success)';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = 'var(--text)'; }, 1500);
+  });
+}
+
+async function loadAdminPrompts() {
+  const container = document.getElementById('admin-tab-prompts');
+  container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Loading...</p>';
+  try {
+    const resp = await fetch('/api/admin/prompts');
+    const data = await resp.json();
+    const current = data.analysis_prompt || '';
+    const defaultPrompt = data.analysis_prompt_default || '';
+    container.innerHTML = `
+      <div class="admin-section" style="padding:12px 0;">
+        <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;display:block;margin-bottom:8px;">
+          "Between the Lines" Analysis Prompt
+        </label>
+        <p style="color:var(--text-dim);font-size:0.75rem;margin-bottom:10px;">
+          This prompt is sent to Claude along with the song lyrics, title, and artist. Leave empty to use the default.
+        </p>
+        <textarea id="admin-analysis-prompt" style="width:100%;min-height:200px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:inherit;font-size:0.82rem;resize:vertical;line-height:1.5;"
+          placeholder="${escapeHtml(defaultPrompt)}">${escapeHtml(current)}</textarea>
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+          <button class="admin-btn" onclick="saveAdminPrompt()">Save</button>
+          <button class="admin-btn" onclick="resetAdminPrompt()">Reset to Default</button>
+          <span id="admin-prompt-status" style="font-size:0.75rem;color:var(--text-dim);"></span>
+        </div>
+      </div>`;
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load prompts.</p>';
+  }
+}
+
+async function saveAdminPrompt() {
+  const text = document.getElementById('admin-analysis-prompt').value.trim();
+  const status = document.getElementById('admin-prompt-status');
+  try {
+    const resp = await fetch('/api/admin/prompts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analysis_prompt: text }),
+    });
+    if (!resp.ok) throw new Error();
+    status.textContent = 'Saved';
+    status.style.color = 'var(--success, #6b8)';
+    // Clear cached analyses so new prompt takes effect
+    _analysisCache = {};
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch (e) {
+    status.textContent = 'Failed to save';
+    status.style.color = 'var(--error)';
+  }
+}
+
+function resetAdminPrompt() {
+  const textarea = document.getElementById('admin-analysis-prompt');
+  textarea.value = '';
+  saveAdminPrompt();
+}
+
+let _adminWishlistFilter = 'all';
+
+async function loadAdminWishlist() {
+  const container = document.getElementById('admin-tab-wishlist');
+  container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Loading...</p>';
+  try {
+    const resp = await fetch('/api/admin/wishlist');
+    if (!resp.ok) throw new Error();
+    const data = await resp.json();
+    const items = data.items || [];
+    const filters = ['all', 'open', 'queued', 'fulfilled'];
+    const filtered = items.filter(i => _adminWishlistFilter === 'all' || i.status === _adminWishlistFilter);
+    container.innerHTML = `
+      <div style="display:flex;gap:6px;padding:8px 12px;">
+        ${filters.map(f => `<button class="admin-filter-btn${_adminWishlistFilter === f ? ' active' : ''}" onclick="_adminWishlistFilter='${f}'; loadAdminWishlist()">${f.charAt(0).toUpperCase() + f.slice(1)}</button>`).join('')}
+      </div>
+      <div class="admin-section">
+        ${filtered.map(item => `
+          <div style="border-bottom:1px solid var(--border-light);">
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;">
+              ${item.thumbnail ? `<img src="${escapeHtml(item.thumbnail)}" style="width:60px;height:40px;object-fit:cover;border-radius:4px;flex-shrink:0;" />` : `<div style="width:60px;height:40px;background:var(--bg-base);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-muted);">&#9835;</div>`}
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:0.85rem;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.title)}</div>
+                <div style="font-size:0.7rem;color:var(--text-dim);">${escapeHtml(item.artist || '')} &mdash; by ${escapeHtml(item.user_name || 'Anon')} &mdash; ${item.vote_count} vote${item.vote_count !== 1 ? 's' : ''}</div>
+                ${item.note ? `<div style="font-size:0.7rem;color:var(--text-dim);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"${escapeHtml(item.note)}"</div>` : ''}
+              </div>
+              <button class="admin-btn" onclick="toggleAdminWishlistDetail('${item.id}')" style="text-transform:uppercase;font-size:0.65rem;padding:2px 8px;">${item.status}</button>
+              <button class="admin-btn danger" onclick="adminDeleteWishlist('${item.id}')">&times;</button>
+            </div>
+            <div id="admin-wish-detail-${item.id}" style="display:none;padding:10px 12px 14px;background:var(--bg-base);border-top:1px solid var(--border-light);">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.8rem;">
+                <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">Title
+                  <input type="text" id="admin-wish-title-${item.id}" value="${escapeHtml(item.title)}" style="width:100%;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+                </label>
+                <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">Artist
+                  <input type="text" id="admin-wish-artist-${item.id}" value="${escapeHtml(item.artist || '')}" style="width:100%;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+                </label>
+              </div>
+              <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);font-size:0.8rem;margin-top:8px;">YouTube URL ${!item.url ? '<span style="color:var(--error);font-size:0.7rem;"> (required to queue)</span>' : ''}
+                <input type="text" id="admin-wish-url-${item.id}" value="${escapeHtml(item.url || '')}" placeholder="https://youtube.com/watch?v=..." style="width:100%;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
+              </label>
+              ${item.note ? `<div style="margin-top:8px;font-size:0.75rem;color:var(--text-dim);font-style:italic;">Note: "${escapeHtml(item.note)}"</div>` : ''}
+              <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end;">
+                ${item.status === 'open' ? `<button class="admin-btn" style="padding:5px 16px;" onclick="adminQueueWishlistWithUrl('${item.id}')">Queue</button>` : ''}
+              </div>
+            </div>
+          </div>
+        `).join('') || '<p style="color:var(--text-dim);padding:16px 12px;">No requests.</p>'}
+      </div>`;
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load requests.</p>';
+  }
+}
+
+function toggleAdminWishlistDetail(itemId) {
+  const el = document.getElementById(`admin-wish-detail-${itemId}`);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+async function adminQueueWishlistWithUrl(itemId) {
+  const url = document.getElementById(`admin-wish-url-${itemId}`).value.trim();
+  if (!url) { showAlert('Please enter a YouTube URL before queueing'); return; }
+  try {
+    const resp = await fetch(`/api/admin/wishlist/${itemId}/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, mode: 'karaoke', languages: [] }),
+    });
+    if (!resp.ok) { const d = await resp.json().catch(() => ({})); showAlert(d.detail || 'Failed to queue'); return; }
+    loadAdminWishlist();
+  } catch (e) { showAlert('Error: ' + e.message); }
+}
+
+async function adminDeleteWishlist(itemId) {
+  if (!await showConfirm('Delete this song request?')) return;
+  try {
+    await fetch(`/api/admin/wishlist/${itemId}`, { method: 'DELETE' });
+    loadAdminWishlist();
+  } catch (e) { showAlert('Error: ' + e.message); }
+}
+
+async function loadAdminSettings() {
+  const container = document.getElementById('admin-tab-settings');
+  container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Loading...</p>';
+  try {
+    const resp = await fetch('/api/admin/settings');
+    const s = await resp.json();
+    container.innerHTML = `
+      <div class="admin-section" style="padding:12px;">
+        <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;display:block;margin-bottom:4px;">
+          User Role &mdash; Limits
+        </label>
+        <p style="font-size:0.7rem;color:var(--text-dim);margin:0 0 12px 0;">Applied when a new User-role account is created.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">
+          <div><label style="font-size:0.75rem;color:var(--text-dim);">Max Karaoke/day</label>
+            <input type="number" id="set-max-karaoke" value="${s.default_max_karaoke_per_day}" min="0" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;" /></div>
+          <div><label style="font-size:0.75rem;color:var(--text-dim);">Max Subtitled/day</label>
+            <input type="number" id="set-max-subtitled" value="${s.default_max_subtitled_per_day}" min="0" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;" /></div>
+          <div><label style="font-size:0.75rem;color:var(--text-dim);">Max Queue Length</label>
+            <input type="number" id="set-max-queue" value="${s.default_max_queue_length}" min="1" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;" /></div>
+          <div><label style="font-size:0.75rem;color:var(--text-dim);">Max Invitations</label>
+            <select id="set-max-invitations" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;">
+              <option value="5" ${(s.default_max_invitations ?? 5) === 5 ? 'selected' : ''}>5</option>
+              <option value="20" ${s.default_max_invitations === 20 ? 'selected' : ''}>20</option>
+              <option value="0" ${s.default_max_invitations === 0 ? 'selected' : ''}>Unlimited</option>
+            </select></div>
+        </div>
+
+        <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;display:block;margin-bottom:8px;">
+          User Role &mdash; Access
+        </label>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-def-dl-karaoke" ${s.default_can_download_karaoke !== false ? 'checked' : ''} style="accent-color:var(--accent);" /> Download Karaoke
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-def-dl-instrumental" ${s.default_can_download_instrumental !== false ? 'checked' : ''} style="accent-color:var(--accent);" /> Download Instrumental
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-def-dl-vocals" ${s.default_can_download_vocals !== false ? 'checked' : ''} style="accent-color:var(--accent);" /> Download Vocals
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-def-delete" ${s.default_can_delete_library ? 'checked' : ''} style="accent-color:var(--accent);" /> Delete from Jukebox
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-def-share" ${s.default_can_share_library !== false ? 'checked' : ''} style="accent-color:var(--accent);" /> Share from Jukebox
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-def-request-songs" ${s.default_can_request_songs !== false ? 'checked' : ''} style="accent-color:var(--accent);" /> Request Songs
+          </label>
+        </div>
+
+        <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;display:block;margin-bottom:8px;">
+          Feature Toggles
+        </label>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-feat-lyrics-correction" ${s.feature_lyrics_correction ? 'checked' : ''} style="accent-color:var(--accent);" /> AI Lyrics Correction (during production)
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-feat-analysis" ${s.feature_analysis ? 'checked' : ''} style="accent-color:var(--accent);" /> Between the Lines Analysis
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-feat-translation" ${s.feature_translation ? 'checked' : ''} style="accent-color:var(--accent);" /> Subtitle Translation
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-feat-wishlist" ${s.feature_wishlist !== false ? 'checked' : ''} style="accent-color:var(--accent);" /> Song Request Wishlist
+          </label>
+        </div>
+
+        <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;display:block;margin-bottom:8px;">
+          Allowed Production Modes
+        </label>
+        <div style="display:flex;gap:12px;margin-bottom:16px;">
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-mode-karaoke" ${s.allowed_modes?.includes('karaoke') ? 'checked' : ''} style="accent-color:var(--accent);" /> Karaoke
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-mode-subtitled" ${s.allowed_modes?.includes('subtitled') ? 'checked' : ''} style="accent-color:var(--accent);" /> Subtitled
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-mode-both" ${s.allowed_modes?.includes('both') ? 'checked' : ''} style="accent-color:var(--accent);" /> Both
+          </label>
+        </div>
+
+        <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;display:block;margin-bottom:8px;">
+          Platform Limits
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">
+          <div><label style="font-size:0.75rem;color:var(--text-dim);">Max Disk Space (MB)</label>
+            <input type="number" id="set-max-disk" value="${s.max_disk_space_mb || 0}" min="0" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;" />
+            <p style="font-size:0.65rem;color:var(--text-dim);margin:2px 0 0;">0 = unlimited. Production pauses when exceeded.</p></div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="admin-btn" onclick="saveAdminSettings()">Save Settings</button>
+          <span id="admin-settings-status" style="font-size:0.75rem;color:var(--text-dim);"></span>
+        </div>
+      </div>`;
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load settings.</p>';
+  }
+}
+
+async function saveAdminSettings() {
+  const status = document.getElementById('admin-settings-status');
+  const modes = [];
+  if (document.getElementById('set-mode-karaoke').checked) modes.push('karaoke');
+  if (document.getElementById('set-mode-subtitled').checked) modes.push('subtitled');
+  if (document.getElementById('set-mode-both').checked) modes.push('both');
+
+  const body = {
+    default_max_karaoke_per_day: parseInt(document.getElementById('set-max-karaoke').value) || 5,
+    default_max_subtitled_per_day: parseInt(document.getElementById('set-max-subtitled').value) || 15,
+    default_max_queue_length: parseInt(document.getElementById('set-max-queue').value) || 10,
+    default_max_invitations: parseInt(document.getElementById('set-max-invitations').value),
+    default_can_download_karaoke: document.getElementById('set-def-dl-karaoke').checked,
+    default_can_download_instrumental: document.getElementById('set-def-dl-instrumental').checked,
+    default_can_download_vocals: document.getElementById('set-def-dl-vocals').checked,
+    default_can_delete_library: document.getElementById('set-def-delete').checked,
+    default_can_share_library: document.getElementById('set-def-share').checked,
+    default_can_request_songs: document.getElementById('set-def-request-songs').checked,
+    feature_lyrics_correction: document.getElementById('set-feat-lyrics-correction').checked,
+    feature_analysis: document.getElementById('set-feat-analysis').checked,
+    feature_translation: document.getElementById('set-feat-translation').checked,
+    feature_wishlist: document.getElementById('set-feat-wishlist').checked,
+    allowed_modes: modes,
+    max_disk_space_mb: parseInt(document.getElementById('set-max-disk').value) || 0,
+  };
+
+  try {
+    const resp = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error();
+    status.textContent = 'Saved';
+    status.style.color = 'var(--success, #6b8)';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch (e) {
+    status.textContent = 'Failed to save';
+    status.style.color = 'var(--error)';
+  }
 }
 
 // ---- Playlists ----
@@ -4550,14 +5733,14 @@ async function createPlaylistFromOverlay() {
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      alert(err.detail || 'Failed to create playlist');
+      showAlert(err.detail || 'Failed to create playlist');
       return;
     }
     input.value = '';
     await loadPlaylists();
     renderPlaylistsOverlayList();
   } catch (e) {
-    alert('Failed to create playlist: ' + e.message);
+    showAlert('Failed to create playlist: ' + e.message);
   }
 }
 
@@ -4594,7 +5777,7 @@ function renderPlaylistDetail() {
   const list = document.getElementById('pl-songs-list');
   const items = pl.items || [];
   if (items.length === 0) {
-    list.innerHTML = '<div class="pl-empty">No songs in this playlist yet.<br>Use the + button on library cards to add songs.</div>';
+    list.innerHTML = '<div class="pl-empty">No songs in this playlist yet.<br>Use the + button on jukebox cards to add songs.</div>';
     return;
   }
 
@@ -4996,8 +6179,16 @@ async function sendInvitations() {
     });
     const data = await resp.json();
     const statusEl = document.getElementById('invite-status');
-    statusEl.textContent = `${data.count} invitation${data.count !== 1 ? 's' : ''} sent!`;
-    statusEl.style.display = 'block';
+    if (!resp.ok) {
+      statusEl.style.color = 'var(--error)';
+      statusEl.textContent = data.detail || 'Failed to send invitations.';
+      statusEl.style.display = 'block';
+    } else {
+      statusEl.style.color = 'var(--success)';
+      statusEl.textContent = `${data.count} invitation${data.count !== 1 ? 's' : ''} sent!`;
+      statusEl.style.display = 'block';
+      updateRemainingCount(data.remaining);
+    }
     inviteEmails = [];
     renderInviteTags();
     loadSentInvitations();
@@ -5006,26 +6197,219 @@ async function sendInvitations() {
   btn.textContent = 'Send Invitations';
 }
 
+function updateRemainingCount(remaining) {
+  const el = document.getElementById('invite-remaining');
+  if (remaining === null || remaining === undefined) {
+    el.textContent = 'Unlimited invitations';
+  } else {
+    el.textContent = `${remaining} invitation${remaining !== 1 ? 's' : ''} remaining`;
+    el.style.color = remaining <= 1 ? 'var(--error)' : 'var(--text-muted)';
+  }
+}
+
 async function loadSentInvitations() {
   const container = document.getElementById('invite-sent-list');
   try {
     const resp = await fetch('/api/invitations');
     const data = await resp.json();
     const invites = data.invitations || [];
+    updateRemainingCount(data.remaining);
     if (invites.length === 0) {
       container.innerHTML = '';
       return;
     }
+    const baseUrl = window.location.origin;
     container.innerHTML = `
       <div style="font-size:0.75rem;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Previously Sent</div>
-      ${invites.map(i => `
-        <div class="invite-sent-item">
-          <span class="email">${escapeHtml(i.email)}</span>
-          <span class="status ${i.status}">${i.status}</span>
-        </div>
-      `).join('')}
+      ${invites.map(i => {
+        const link = i.token ? `${baseUrl}/login?invite=${i.token}` : null;
+        const expired = i.expires_at && new Date(i.expires_at) < new Date();
+        const statusLabel = i.status === 'accepted' ? 'accepted' : expired ? 'expired' : 'pending';
+        const statusClass = i.status === 'accepted' ? 'accepted' : expired ? 'expired' : 'pending';
+        return `
+        <div class="invite-sent-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
+            <span class="email">${escapeHtml(i.email)}</span>
+            <span class="status ${statusClass}" style="${expired && i.status !== 'accepted' ? 'color:var(--error);' : ''}">${statusLabel}</span>
+          </div>
+          ${i.status === 'pending' && !expired && link ? `
+            <div style="display:flex;gap:6px;width:100%;align-items:center;">
+              <input type="text" readonly value="${escapeHtml(link)}" style="flex:1;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);font-size:0.7rem;font-family:inherit;" onclick="this.select()" />
+              <button onclick="navigator.clipboard.writeText('${escapeHtml(link)}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)" style="padding:4px 10px;background:var(--bg-hover);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:0.7rem;cursor:pointer;font-family:inherit;white-space:nowrap;">Copy</button>
+            </div>
+          ` : ''}
+        </div>`;
+      }).join('')}
     `;
   } catch (e) { container.innerHTML = ''; }
+}
+
+
+// ---------------------------------------------------------------------------
+// Wishlist (Song Requests)
+// ---------------------------------------------------------------------------
+
+function showWishlistTab() {
+  _wishlistActive = true;
+  renderLibraryFilterBar();
+  loadWishlist();
+}
+
+async function loadWishlist() {
+  try {
+    const resp = await fetch('/api/wishlist');
+    const data = await resp.json();
+    wishlistItems = data.items || [];
+    renderWishlistGrid();
+  } catch (e) {
+    document.getElementById('library-main').innerHTML = '<p style="color:var(--error);padding:24px;">Failed to load requests.</p>';
+  }
+}
+
+function renderWishlistFilterBar() {
+  const bar = document.getElementById('library-filter-bar');
+  const s = wishlistFilters.sort;
+  bar.innerHTML = `
+    <input type="text" placeholder="Search requests..." value="${escapeHtml(wishlistFilters.search)}"
+           oninput="wishlistFilters.search=this.value; renderWishlistGrid()" />
+    <select onchange="wishlistFilters.sort=this.value; renderWishlistGrid()">
+      <option value="votes" ${s === 'votes' ? 'selected' : ''}>Most Requested</option>
+      <option value="recent" ${s === 'recent' ? 'selected' : ''}>Most Recent</option>
+    </select>
+    ${currentUser && userCan('can_request_songs') ? '<button class="btn-primary" style="margin-left:auto;padding:6px 16px;font-size:0.8rem;white-space:nowrap;" onclick="openRequestForm()">+ Request a Song</button>' : ''}
+  `;
+}
+
+function renderWishlistGrid() {
+  const main = document.getElementById('library-main');
+  const query = wishlistFilters.search.toLowerCase();
+
+  let filtered = wishlistItems.filter(item => {
+    if (query) {
+      const haystack = [item.title, item.artist, item.note].filter(Boolean).join(' ').toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
+
+  if (wishlistFilters.sort === 'votes') {
+    filtered.sort((a, b) => b.vote_count - a.vote_count);
+  } else {
+    filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+
+  if (filtered.length === 0) {
+    main.innerHTML = `<div class="library-results-count">${wishlistItems.length} requests, 0 matching</div>
+      <p style="color:var(--text-dim);text-align:center;padding:40px;">No song requests yet. Be the first!</p>`;
+    return;
+  }
+
+  const grid = filtered.map(item => {
+    const thumb = item.thumbnail
+      ? `<img class="library-thumb" src="${item.thumbnail}" alt="" loading="lazy" />`
+      : `<div class="library-thumb" style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:2rem;">&#9835;</div>`;
+    const noteSnippet = item.note ? `<p style="font-size:0.72rem;color:var(--text-dim);margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic;">"${escapeHtml(item.note)}"</p>` : '';
+    const votedStyle = item.user_voted ? 'color:var(--accent);border-color:var(--accent);' : '';
+    const fulfilledBadge = item.status === 'fulfilled' && item.fulfilled_by_job_id
+      ? `<span style="font-size:0.7rem;color:var(--accent);cursor:pointer;" onclick="showPlayerForJob('${item.fulfilled_by_job_id}')">&#9654; Ready</span>`
+      : '';
+    return `
+      <div class="library-item">
+        <div class="library-item-header">${thumb}</div>
+        <div class="library-info">
+          <h3>${escapeHtml(item.title)}</h3>
+          ${item.artist ? `<div class="channel">${escapeHtml(item.artist)}</div>` : ''}
+          ${noteSnippet}
+          <div class="meta" style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
+            <span>by ${escapeHtml(item.user_name || 'Anonymous')}</span>
+            <span style="display:flex;align-items:center;gap:6px;">
+              ${fulfilledBadge}
+              <button onclick="event.stopPropagation(); toggleWishlistVote('${item.id}')"
+                style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:0.78rem;color:var(--text-dim);font-family:inherit;${votedStyle}">&#9650; ${item.vote_count}</button>
+            </span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  main.innerHTML = `<div class="library-results-count">${filtered.length} request${filtered.length !== 1 ? 's' : ''}</div>
+    <div class="library-grid">${grid}</div>`;
+}
+
+async function toggleWishlistVote(itemId) {
+  try {
+    const resp = await fetch(`/api/wishlist/${itemId}/vote`, { method: 'POST' });
+    if (!resp.ok) { const d = await resp.json().catch(() => ({})); showAlert(d.detail || 'Vote failed'); return; }
+    const data = await resp.json();
+    const item = wishlistItems.find(i => i.id === itemId);
+    if (item) { item.vote_count = data.vote_count; item.user_voted = data.user_voted; }
+    renderWishlistGrid();
+  } catch (e) { showAlert('Error: ' + e.message); }
+}
+
+function openRequestForm() {
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-box" style="max-width:420px;text-align:left;">
+      <h3 style="color:var(--text-bright);margin:0 0 12px;font-size:1rem;">Request a Song</h3>
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">YouTube URL (optional)</label>
+      <input type="text" id="wish-url" placeholder="https://youtube.com/watch?v=..." style="width:100%;padding:6px 8px;margin-bottom:6px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
+      <div id="wish-meta-status" style="font-size:0.7rem;color:var(--text-dim);margin-bottom:6px;min-height:1em;"></div>
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Song Title *</label>
+      <input type="text" id="wish-title" placeholder="Song title" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Artist</label>
+      <input type="text" id="wish-artist" placeholder="Artist name" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Note</label>
+      <input type="text" id="wish-note" placeholder="Why you want this song..." maxlength="200" style="width:100%;padding:6px 8px;margin-bottom:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="admin-btn" onclick="this.closest('.confirm-overlay').remove()">Cancel</button>
+        <button class="btn-primary" style="padding:6px 20px;" onclick="submitWishlistRequest()">Submit</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('wish-url').addEventListener('blur', async function() {
+    const url = this.value.trim();
+    if (!url) return;
+    const status = document.getElementById('wish-meta-status');
+    status.textContent = 'Fetching metadata...';
+    status.style.color = 'var(--text-dim)';
+    try {
+      const resp = await fetch('/api/wishlist/preview?' + new URLSearchParams({ url }));
+      if (resp.ok) {
+        const meta = await resp.json();
+        if (meta.title && !document.getElementById('wish-title').value) document.getElementById('wish-title').value = meta.title;
+        if (meta.channel && !document.getElementById('wish-artist').value) document.getElementById('wish-artist').value = meta.channel;
+        status.textContent = 'Metadata loaded';
+        status.style.color = 'var(--success, #6b8)';
+      } else {
+        status.textContent = 'Could not fetch metadata - fill in manually';
+      }
+    } catch (e) {
+      status.textContent = 'Could not fetch metadata';
+    }
+  });
+}
+
+async function submitWishlistRequest() {
+  const url = document.getElementById('wish-url').value.trim();
+  const title = document.getElementById('wish-title').value.trim();
+  const artist = document.getElementById('wish-artist').value.trim();
+  const note = document.getElementById('wish-note').value.trim();
+
+  if (!title && !url) { showAlert('Please enter a song title or YouTube URL.'); return; }
+
+  try {
+    const resp = await fetch('/api/wishlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url || null, title: title || null, artist: artist || null, note: note || null }),
+    });
+    if (!resp.ok) { const d = await resp.json().catch(() => ({})); showAlert(d.detail || 'Failed to submit'); return; }
+    document.querySelector('.confirm-overlay')?.remove();
+    loadWishlist();
+  } catch (e) { showAlert('Error: ' + e.message); }
 }
 
 
@@ -5048,6 +6432,13 @@ async function init() {
     if (!isSharedLink) { window.location.href = '/login'; return; }
   }
 
+  // Load public settings (allowed modes, feature flags)
+  try {
+    const sResp = await fetch('/api/settings/public');
+    if (sResp.ok) appSettings = await sResp.json();
+  } catch (e) {}
+  applyAppSettings();
+
   // Load both panes on startup (only if authenticated)
   if (currentUser) {
     await loadPlaylists();
@@ -5060,9 +6451,13 @@ async function init() {
     const data = await resp.json();
     productionQueue = data.queue || [];
     currentJob = data.job || null;
+    _diskQuotaExceeded = data.disk_quota_exceeded || false;
     renderQueue();
     if (productionQueue.length > 0) startQueuePolling();
   } catch (e) {}
+
+  // Start background polling for cross-user updates
+  if (currentUser) startBackgroundPolling();
 
   // Check for hash-based deep link: #/watch/job-id
   if (isSharedLink) {
