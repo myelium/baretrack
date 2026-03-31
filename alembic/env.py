@@ -17,8 +17,11 @@ if config.config_file_name is not None:
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from models import User, UserPermissions, Feedback  # noqa: F401
-from database import Base
+from database import Base, DATABASE_URL
 target_metadata = Base.metadata
+
+# Override sqlalchemy.url with DATABASE_URL env var
+config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

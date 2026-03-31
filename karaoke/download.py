@@ -1,10 +1,22 @@
 """Download video and audio from a YouTube URL using yt-dlp."""
 
+import os
 import re
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+
+def _yt_dlp_common() -> list[str]:
+    """Common yt-dlp flags, evaluated at call time so cookies file can be downloaded first."""
+    flags = [
+        "--no-check-certificates",
+        "--js-runtimes", "node",
+    ]
+    cookies_file = os.getenv("YT_DLP_COOKIES_FILE", "")
+    if cookies_file and os.path.exists(cookies_file):
+        flags += ["--cookies", cookies_file]
+    return flags
 
 
 def _run_ytdlp_with_progress(
@@ -22,21 +34,24 @@ def _run_ytdlp_with_progress(
         stderr=subprocess.STDOUT,
         text=True,
     )
+    output_lines = []
     for line in proc.stdout:
+        output_lines.append(line.rstrip())
         # yt-dlp progress lines look like: [download]  45.2% of 12.34MiB ...
         m = re.search(r"\[download\]\s+([\d.]+)%", line)
         if m:
             progress_callback(float(m.group(1)) / 100.0)
     proc.wait()
     if proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, args[0])
+        error_detail = "\n".join(output_lines[-20:])
+        raise RuntimeError(f"yt-dlp failed (exit {proc.returncode}):\n{error_detail}")
 
 
 def fetch_metadata(url: str) -> dict:
     """Fetch video metadata (title, duration, thumbnail, channel, etc.) without downloading."""
     fields = "%(title)s\n%(duration)s\n%(thumbnail)s\n%(channel)s\n%(upload_date)s\n%(categories)s\n%(tags)s"
     result = subprocess.run(
-        [sys.executable, "-m", "yt_dlp",
+        [sys.executable, "-m", "yt_dlp"] + _yt_dlp_common() + [
          "--no-playlist", "--print", fields,
          url],
         capture_output=True,
@@ -96,7 +111,7 @@ def download(
     video_path = output_dir / "video.mp4"
     audio_path = output_dir / "audio.wav"
 
-    yt_dlp = [sys.executable, "-m", "yt_dlp"]
+    yt_dlp = [sys.executable, "-m", "yt_dlp"] + _yt_dlp_common()
 
     # Download best video (no audio) — first half of progress
     def _video_progress(pct: float) -> None:
@@ -146,7 +161,7 @@ def download_audio(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     audio_path = output_dir / "audio.wav"
-    yt_dlp = [sys.executable, "-m", "yt_dlp"]
+    yt_dlp = [sys.executable, "-m", "yt_dlp"] + _yt_dlp_common()
 
     _run_ytdlp_with_progress(
         yt_dlp + [

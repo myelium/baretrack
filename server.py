@@ -28,8 +28,9 @@ from auth import (
     create_token, create_user_with_permissions, get_current_user,
     get_optional_user, hash_password, is_admin, require_admin, verify_password,
 )
-from database import SessionLocal, get_db
-from models import ActivityLog, Comment, Feedback, Invitation, JobMetadata, Playlist, PlaylistItem, User, UserPermissions, Vote, WishlistItem, WishlistVote
+from database import SessionLocal, get_db, get_session
+from models import ActivityLog, AppConfig, Comment, Feedback, Invitation, JobMetadata, Playlist, PlaylistItem, User, UserPermissions, Vote, WishlistItem, WishlistVote
+from storage import storage
 
 import logging
 import os
@@ -44,7 +45,6 @@ from karaoke.translate import translate_srt
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 JOBS_DIR = Path("output/jobs")
-STATS_PATH = JOBS_DIR / "stats.json"
 
 
 def _log_activity(db, user, event_type: str, detail: dict | None = None) -> None:
@@ -158,20 +158,45 @@ _job: dict | None = None
 _queue: list[dict] = []  # production queue [{id, url, mode, languages, title, thumbnail, channel, status}]
 _pause_requested = False
 _cancel_requested = False
-QUEUE_PATH = JOBS_DIR / "queue.json"
 # Learned multipliers: step -> ratio of step_duration / audio_duration
 _learned_multipliers: dict[int, float] = {}
+
+
+def _db_config_get(key: str, default: dict | list | None = None):
+    """Read a JSON config value from the app_config table."""
+    db = get_session()
+    try:
+        row = db.query(AppConfig).filter(AppConfig.key == key).first()
+        if row:
+            return json.loads(row.value)
+        return default if default is not None else {}
+    except Exception:
+        return default if default is not None else {}
+    finally:
+        db.close()
+
+
+def _db_config_set(key: str, value) -> None:
+    """Write a JSON config value to the app_config table."""
+    db = get_session()
+    try:
+        row = db.query(AppConfig).filter(AppConfig.key == key).first()
+        serialized = json.dumps(value, default=str)
+        if row:
+            row.value = serialized
+        else:
+            db.add(AppConfig(key=key, value=serialized))
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 def _load_stats() -> None:
     """Load historical stats and compute learned multipliers."""
     global _learned_multipliers
-    if not STATS_PATH.exists():
-        return
-    try:
-        stats = json.loads(STATS_PATH.read_text())
-    except (json.JSONDecodeError, OSError):
-        return
+    stats = _db_config_get("stats", {"history": []})
     history = stats.get("history", [])
     if not history:
         return
@@ -195,39 +220,28 @@ def _load_stats() -> None:
 
 
 def _save_stats(audio_duration: float, step_durations: dict) -> None:
-    """Append this job's timing data to the stats file."""
-    JOBS_DIR.mkdir(parents=True, exist_ok=True)
-    stats = {"history": []}
-    if STATS_PATH.exists():
-        try:
-            stats = json.loads(STATS_PATH.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
-    stats["history"].append({
+    """Append this job's timing data to the DB."""
+    stats = _db_config_get("stats", {"history": []})
+    stats.setdefault("history", []).append({
         "audio_duration": audio_duration,
         "step_durations": step_durations,
         "timestamp": _now_iso(),
     })
     # Keep last 50 entries to prevent unbounded growth
     stats["history"] = stats["history"][-50:]
-    STATS_PATH.write_text(json.dumps(stats, indent=2))
+    _db_config_set("stats", stats)
     # Reload multipliers with new data
     _load_stats()
 
 def _save_queue() -> None:
-    """Persist queue to disk."""
-    JOBS_DIR.mkdir(parents=True, exist_ok=True)
-    QUEUE_PATH.write_text(json.dumps(_queue, default=str))
+    """Persist queue to DB."""
+    _db_config_set("queue", _queue)
 
 
 def _load_queue() -> None:
-    """Load queue from disk."""
+    """Load queue from DB."""
     global _queue
-    if QUEUE_PATH.exists():
-        try:
-            _queue = json.loads(QUEUE_PATH.read_text())
-        except (json.JSONDecodeError, OSError):
-            _queue = []
+    _queue = _db_config_get("queue", [])
 
 
 _disk_quota_exceeded = False  # set when disk quota blocks production
@@ -413,6 +427,80 @@ def _on_job_finished() -> None:
             _db.close()
         except Exception:
             pass
+
+    # Save full metadata to DB and upload files to R2
+    if job_status == "done" and job_id and output_dir:
+        _persist_job(job_id, output_dir)
+
+
+def _persist_job(job_id: str, output_dir: Path) -> None:
+    """Save job metadata to DB and upload output files to R2 (if configured)."""
+    try:
+        job_json_path = output_dir / "job.json"
+        if not job_json_path.exists():
+            return
+        data = json.loads(job_json_path.read_text())
+
+        # Update JobMetadata with full data
+        db = get_session()
+        meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+        if not meta:
+            meta = JobMetadata(job_id=job_id)
+            db.add(meta)
+        meta.title = meta.title or data.get("title")
+        meta.artist = meta.artist or data.get("artist")
+        meta.url = data.get("url")
+        meta.mode = data.get("mode", "karaoke")
+        meta.languages = json.dumps(data.get("languages") or ([data["language"]] if data.get("language") else []))
+        meta.thumbnail = data.get("thumbnail")
+        meta.channel = data.get("channel")
+        meta.upload_date = data.get("upload_date")
+        meta.categories = json.dumps(data.get("categories", []))
+        meta.tags = json.dumps(data.get("tags", []))
+        meta.finished_at = data.get("finished_at")
+        meta.audio_duration = data.get("audio_duration")
+        meta.language_detected = data.get("language_detected")
+        meta.status = "done"
+        meta.added_by = data.get("added_by")
+        meta.added_by_id = data.get("added_by_id")
+
+        # Save lyrics to DB
+        lyrics_path = output_dir / "lyrics.json"
+        if lyrics_path.exists():
+            meta.lyrics = lyrics_path.read_text()
+
+        # Save subtitles to DB
+        srt_data = {}
+        for srt in output_dir.glob("subtitles_*.srt"):
+            lang = srt.stem.replace("subtitles_", "")
+            srt_data[lang] = srt.read_text()
+        if srt_data:
+            meta.subtitles = json.dumps(srt_data)
+
+        # Upload to R2 if configured
+        if storage.is_r2():
+            output_files = ["karaoke.mp4", "instrumental.mp3", "vocals.mp3", "lyrics.json", "job.json"]
+            total_size = 0
+            for fname in output_files:
+                fpath = output_dir / fname
+                if fpath.exists():
+                    storage.upload(f"jobs/{job_id}/{fname}", fpath)
+                    total_size += fpath.stat().st_size
+            # Upload subtitle files
+            for srt in output_dir.glob("subtitles_*.srt"):
+                storage.upload(f"jobs/{job_id}/{srt.name}", srt)
+                total_size += srt.stat().st_size
+            meta.file_size_bytes = total_size
+            # Clean up local files after R2 upload
+            shutil.rmtree(output_dir, ignore_errors=True)
+        else:
+            total_size = sum(f.stat().st_size for f in output_dir.iterdir() if f.is_file())
+            meta.file_size_bytes = total_size
+
+        db.commit()
+        db.close()
+    except Exception as e:
+        logger.error("Failed to persist job %s: %s", job_id, e)
 
 
 STEP_NAMES = {
@@ -616,6 +704,7 @@ def _run_pipeline(job_id: str, url: str, output_dir: Path,
     """Run the full karaoke pipeline in a background thread."""
     try:
         device = DEVICE
+        demucs_model = _load_settings().get("demucs_model", "htdemucs_ft")
         work_dir = output_dir / "work"
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -672,7 +761,7 @@ def _run_pipeline(job_id: str, url: str, output_dir: Path,
             _update_job(step=2, step_name=STEP_NAMES[2], step_progress=0.0,
                          step_started_at=_now_iso())
             _save_job_json()
-            instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs", device=device)
+            instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs", device=device, model=demucs_model)
             _convert_to_mp3(instrumental_wav, instrumental_mp3)
             _convert_to_mp3(vocals_wav, vocals_mp3)
             instrumental_wav.unlink(missing_ok=True)
@@ -830,6 +919,7 @@ def _run_pipeline(job_id: str, url: str, output_dir: Path,
         _on_job_finished()
 
     except Exception as e:
+        logger.error("Pipeline failed for %s: %s", job_id, e, exc_info=True)
         _update_job(status="failed", error=str(e), finished_at=_now_iso())
         _save_job_json()
         _on_job_finished()
@@ -945,6 +1035,7 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
         _on_job_finished()
 
     except Exception as e:
+        logger.error("Subtitled pipeline failed for %s: %s", job_id, e, exc_info=True)
         _update_job(status="failed", error=str(e), finished_at=_now_iso())
         _save_job_json()
         _on_job_finished()
@@ -957,6 +1048,7 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
         languages = []
     try:
         device = DEVICE
+        demucs_model = _load_settings().get("demucs_model", "htdemucs_ft")
         work_dir = output_dir / "work"
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1003,7 +1095,7 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
         _update_job(step=2, step_name=STEP_NAMES_BOTH[2], step_progress=0.0,
                      step_started_at=_now_iso())
         _save_job_json()
-        instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs", device=device)
+        instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs", device=device, model=demucs_model)
         _convert_to_mp3(instrumental_wav, instrumental_mp3)
         _convert_to_mp3(vocals_wav, vocals_mp3)
         instrumental_wav.unlink(missing_ok=True)
@@ -1165,6 +1257,7 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
         _on_job_finished()
 
     except Exception as e:
+        logger.error("Combined pipeline failed for %s: %s", job_id, e, exc_info=True)
         _update_job(status="failed", error=str(e), finished_at=_now_iso())
         _save_job_json()
         _on_job_finished()
@@ -1650,7 +1743,8 @@ def create_job(req: JobRequest, user: User | None = Depends(get_optional_user)):
     output_dir = JOBS_DIR / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
     # Support both old single language and new multi-language
-    languages = req.languages[:3] if req.languages else (
+    _max_langs = _load_settings().get("max_subtitle_languages", 3)
+    languages = req.languages[:_max_langs] if req.languages else (
         [req.language] if req.language else []
     )
     if mode not in ("subtitled", "both"):
@@ -1731,7 +1825,8 @@ def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_use
     if mode not in allowed:
         raise HTTPException(403, f"Production mode '{mode}' is not enabled")
 
-    languages = req.languages[:3] if req.languages else []
+    max_langs = settings.get("max_subtitle_languages", 3)
+    languages = req.languages[:max_langs] if req.languages else []
     if mode not in ("subtitled", "both"):
         languages = []
 
@@ -2108,9 +2203,10 @@ def get_library(user: User | None = Depends(get_optional_user),
     """Return all completed jobs as a list, sorted newest first, with vote data."""
     from sqlalchemy import func
 
-    items = []
-    if not JOBS_DIR.exists():
-        return {"items": items}
+    # Query completed jobs from DB
+    meta_rows = db.query(JobMetadata).filter(JobMetadata.status == "done").all()
+    if not meta_rows:
+        return {"items": []}
 
     # Preload all vote counts in one query
     vote_rows = db.query(
@@ -2137,50 +2233,17 @@ def get_library(user: User | None = Depends(get_optional_user),
     ).group_by(Comment.job_id).all()
     comment_counts: dict[str, int] = {job_id: count for job_id, count in comment_rows}
 
-    # Preload job metadata from DB
-    meta_rows = db.query(JobMetadata).all()
-    meta_map: dict[str, JobMetadata] = {m.job_id: m for m in meta_rows}
-
-    for d in JOBS_DIR.iterdir():
-        if not d.is_dir():
-            continue
-        job_json = d / "job.json"
-        if not job_json.exists():
-            continue
-        try:
-            data = json.loads(job_json.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-        if data.get("status") != "done":
-            continue
-        job_id = data.get("id", d.name)
+    items = []
+    for meta in meta_rows:
+        job_id = meta.job_id
         votes = vote_map.get(job_id, {"upvotes": 0, "downvotes": 0})
-        meta = meta_map.get(job_id)
-        items.append({
-            "id": job_id,
-            "title": (meta.title if meta and meta.title else None) or data.get("title", "Unknown"),
-            "artist": (meta.artist if meta and meta.artist else None) or data.get("artist", ""),
-            "url": data.get("url"),
-            "mode": data.get("mode", "karaoke"),
-            "languages": data.get("languages") or ([data["language"]] if data.get("language") else []),
-            "thumbnail": data.get("thumbnail"),
-            "channel": data.get("channel"),
-            "upload_date": data.get("upload_date"),
-            "categories": data.get("categories", []),
-            "tags": data.get("tags", []),
-            "finished_at": data.get("finished_at"),
-            "audio_duration": data.get("audio_duration"),
-            "year": (meta.year if meta and meta.year else None),
-            "language": data.get("language_detected"),
-            "output_dir": str(d),
-            "added_by": data.get("added_by"),
-            "added_by_id": data.get("added_by_id"),
-            "view_count": meta.view_count if meta else 0,
-            "upvotes": votes["upvotes"],
-            "downvotes": votes["downvotes"],
-            "user_vote": user_votes.get(job_id, 0),
-            "comment_count": comment_counts.get(job_id, 0),
-        })
+        item = meta.to_library_dict()
+        item["upvotes"] = votes["upvotes"]
+        item["downvotes"] = votes["downvotes"]
+        item["user_vote"] = user_votes.get(job_id, 0)
+        item["comment_count"] = comment_counts.get(job_id, 0)
+        items.append(item)
+
     items.sort(key=lambda x: x.get("finished_at") or "", reverse=True)
     return {"items": items}
 
@@ -2192,71 +2255,60 @@ def _extract_video_id(url: str) -> str | None:
 
 
 @app.get("/api/library/check-url")
-def check_url_in_library(url: str, mode: str = "karaoke"):
+def check_url_in_library(url: str, mode: str = "karaoke",
+                         db: Session = Depends(get_db)):
     """Check if a YouTube URL has already been generated in the library for the given mode."""
     video_id = _extract_video_id(url)
     if not video_id:
         return {"found": False}
 
-    if not JOBS_DIR.exists():
-        return {"found": False}
-
-    for d in JOBS_DIR.iterdir():
-        if not d.is_dir():
-            continue
-        job_json = d / "job.json"
-        if not job_json.exists():
-            continue
-        try:
-            data = json.loads(job_json.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-        if data.get("status") != "done":
-            continue
-        existing_mode = data.get("mode", "karaoke")
-        # "both" covers both karaoke and subtitled
+    rows = db.query(JobMetadata).filter(JobMetadata.status == "done").all()
+    for meta in rows:
+        existing_mode = meta.mode or "karaoke"
         if existing_mode != mode and not (existing_mode == "both" and mode in ("karaoke", "subtitled")):
             continue
-        existing_id = _extract_video_id(data.get("url", ""))
+        existing_id = _extract_video_id(meta.url or "")
         if existing_id == video_id:
             return {
                 "found": True,
                 "item": {
-                    "id": data.get("id", d.name),
-                    "title": data.get("title", "Unknown"),
-                    "url": data.get("url"),
-                    "mode": data.get("mode", "karaoke"),
-                    "thumbnail": data.get("thumbnail"),
-                    "channel": data.get("channel"),
-                    "finished_at": data.get("finished_at"),
+                    "id": meta.job_id,
+                    "title": meta.title or "Unknown",
+                    "url": meta.url,
+                    "mode": meta.mode or "karaoke",
+                    "thumbnail": meta.thumbnail,
+                    "channel": meta.channel,
+                    "finished_at": meta.finished_at,
                 },
             }
 
     return {"found": False}
 
 
+def _serve_file(job_id: str, filename: str, media_type: str, label: str = "File"):
+    """Serve a job file from local disk or redirect to R2."""
+    local = JOBS_DIR / job_id / filename
+    if local.exists():
+        return FileResponse(local, media_type=media_type)
+    url = storage.get_url(f"jobs/{job_id}/{filename}")
+    if url:
+        return RedirectResponse(url, status_code=302)
+    raise HTTPException(404, f"{label} not found")
+
+
 @app.get("/api/jobs/{job_id}/video")
 def stream_video(job_id: str):
-    path = JOBS_DIR / job_id / "karaoke.mp4"
-    if not path.exists():
-        raise HTTPException(404, "Video not found")
-    return FileResponse(path, media_type="video/mp4")
+    return _serve_file(job_id, "karaoke.mp4", "video/mp4", "Video")
 
 
 @app.get("/api/jobs/{job_id}/instrumental")
 def stream_instrumental(job_id: str):
-    path = JOBS_DIR / job_id / "instrumental.mp3"
-    if not path.exists():
-        raise HTTPException(404, "Instrumental not found")
-    return FileResponse(path, media_type="audio/mpeg")
+    return _serve_file(job_id, "instrumental.mp3", "audio/mpeg", "Instrumental")
 
 
 @app.get("/api/jobs/{job_id}/vocals")
 def stream_vocals(job_id: str):
-    path = JOBS_DIR / job_id / "vocals.mp3"
-    if not path.exists():
-        raise HTTPException(404, "Vocals not found")
-    return FileResponse(path, media_type="audio/mpeg")
+    return _serve_file(job_id, "vocals.mp3", "audio/mpeg", "Vocals")
 
 
 @app.post("/api/jobs/{job_id}/view")
@@ -2275,15 +2327,18 @@ def record_view(job_id: str, user: User | None = Depends(get_optional_user),
 
 
 @app.get("/api/jobs/{job_id}/lyrics")
-def get_lyrics(job_id: str):
+def get_lyrics(job_id: str, db: Session = Depends(get_db)):
+    # Prefer DB (lyrics travel with the library item)
+    meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+    if meta and meta.lyrics:
+        return json.loads(meta.lyrics)
+    # Fallback to local file (during active job processing)
     path = JOBS_DIR / job_id / "lyrics.json"
-    if not path.exists():
-        raise HTTPException(404, "Lyrics not found")
-    return json.loads(path.read_text())
+    if path.exists():
+        return json.loads(path.read_text())
+    raise HTTPException(404, "Lyrics not found")
 
 
-PROMPTS_PATH = JOBS_DIR / "prompts.json"
-SETTINGS_PATH = JOBS_DIR / "settings.json"
 
 # Default settings
 _DEFAULT_SETTINGS = {
@@ -2302,40 +2357,30 @@ _DEFAULT_SETTINGS = {
     "feature_wishlist": True,
     "default_can_request_songs": True,
     "max_disk_space_mb": 0,
+    "demucs_model": "htdemucs_ft",
+    "max_subtitle_languages": 3,
 }
 
 
 def _load_settings() -> dict:
-    """Load admin settings from disk."""
-    if SETTINGS_PATH.exists():
-        try:
-            stored = json.loads(SETTINGS_PATH.read_text())
-            return {**_DEFAULT_SETTINGS, **stored}
-        except (json.JSONDecodeError, OSError):
-            pass
-    return dict(_DEFAULT_SETTINGS)
+    """Load admin settings from DB."""
+    stored = _db_config_get("settings", {})
+    return {**_DEFAULT_SETTINGS, **stored}
 
 
 def _save_settings(settings: dict) -> None:
-    """Save admin settings to disk."""
-    JOBS_DIR.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(json.dumps(settings, indent=2))
+    """Save admin settings to DB."""
+    _db_config_set("settings", settings)
 
 
 def _load_prompts() -> dict:
-    """Load custom prompts from disk."""
-    if PROMPTS_PATH.exists():
-        try:
-            return json.loads(PROMPTS_PATH.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+    """Load custom prompts from DB."""
+    return _db_config_get("prompts", {})
 
 
 def _save_prompts(prompts: dict) -> None:
-    """Save custom prompts to disk."""
-    JOBS_DIR.mkdir(parents=True, exist_ok=True)
-    PROMPTS_PATH.write_text(json.dumps(prompts, indent=2))
+    """Save custom prompts to DB."""
+    _db_config_set("prompts", prompts)
 
 
 @app.get("/api/admin/prompts")
@@ -2411,27 +2456,22 @@ def get_analysis(job_id: str, db: Session = Depends(get_db)):
     if meta and meta.analysis_text and len(meta.analysis_text) > 10:
         return {"song_info": meta.analysis_song_info or "", "analysis": meta.analysis_text}
 
-    # Need lyrics to analyze
-    job_dir = JOBS_DIR / job_id
-    lyrics_path = job_dir / "lyrics.json"
-    if not lyrics_path.exists():
+    # Need lyrics to analyze — prefer DB, fallback to file
+    lyrics_raw = None
+    if meta and meta.lyrics:
+        lyrics_raw = meta.lyrics
+    else:
+        lyrics_path = JOBS_DIR / job_id / "lyrics.json"
+        if lyrics_path.exists():
+            lyrics_raw = lyrics_path.read_text()
+    if not lyrics_raw:
         raise HTTPException(404, "Lyrics not found")
 
-    # Get title/artist from DB first, fall back to job.json
     title = meta.title if meta else None
     artist = meta.artist if meta else None
-    if not title or not artist:
-        job_json = job_dir / "job.json"
-        if job_json.exists():
-            try:
-                job_data = json.loads(job_json.read_text())
-                title = title or job_data.get("title")
-                artist = artist or job_data.get("artist") or job_data.get("channel")
-            except (json.JSONDecodeError, OSError):
-                pass
 
     # Build plain text lyrics from word-level data
-    words = json.loads(lyrics_path.read_text())
+    words = json.loads(lyrics_raw)
     lyrics_text = " ".join(w["text"] for w in words)
 
     # Load custom prompt if set
@@ -2463,35 +2503,38 @@ def get_analysis(job_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/jobs/{job_id}/subtitles/{lang_code}")
-def get_subtitles_lang(job_id: str, lang_code: str):
+def get_subtitles_lang(job_id: str, lang_code: str, db: Session = Depends(get_db)):
     """Serve per-language SRT file."""
-    # Sanitize lang_code to prevent path traversal
     if not re.match(r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$", lang_code):
         raise HTTPException(400, "Invalid language code")
+    # Try DB first
+    meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+    if meta and meta.subtitles:
+        srt_data = json.loads(meta.subtitles)
+        if lang_code in srt_data:
+            return Response(content=srt_data[lang_code], media_type="text/plain")
+    # Fallback to local file
     path = JOBS_DIR / job_id / f"subtitles_{lang_code}.srt"
-    if not path.exists():
-        raise HTTPException(404, "Subtitles not found")
-    filename = f"subtitles_{lang_code}.srt"
-    return FileResponse(path, media_type="text/plain",
-                        filename=filename,
-                        headers={"Content-Disposition": f"attachment; filename={filename}"})
+    if path.exists():
+        return FileResponse(path, media_type="text/plain")
+    raise HTTPException(404, "Subtitles not found")
 
 
 @app.get("/api/jobs/{job_id}/subtitles")
-def get_subtitles(job_id: str):
-    """Backward compat: serve first available SRT file."""
+def get_subtitles(job_id: str, db: Session = Depends(get_db)):
+    """Serve first available SRT file."""
+    # Try DB first
+    meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+    if meta and meta.subtitles:
+        srt_data = json.loads(meta.subtitles)
+        if srt_data:
+            lang = sorted(srt_data.keys())[0]
+            return Response(content=srt_data[lang], media_type="text/plain")
+    # Fallback to local file
     job_dir = JOBS_DIR / job_id
-    # Try to find any subtitles_*.srt file
-    for f in sorted(job_dir.glob("subtitles_*.srt")):
-        return FileResponse(f, media_type="text/plain",
-                            filename=f.name,
-                            headers={"Content-Disposition": f"attachment; filename={f.name}"})
-    # Fall back to old single-file format
-    path = job_dir / "subtitles.srt"
-    if path.exists():
-        return FileResponse(path, media_type="text/plain",
-                            filename="subtitles.srt",
-                            headers={"Content-Disposition": "attachment; filename=subtitles.srt"})
+    if job_dir.exists():
+        for f in sorted(job_dir.glob("subtitles_*.srt")):
+            return FileResponse(f, media_type="text/plain")
     raise HTTPException(404, "Subtitles not found")
 
 
@@ -2506,16 +2549,10 @@ def update_job_metadata(job_id: str, req: UpdateJobRequest,
                         user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
     """Update editable job metadata (title, artist)."""
-    job_dir = JOBS_DIR / job_id
-    job_json = job_dir / "job.json"
-    if not job_json.exists():
-        raise HTTPException(404, "Job not found")
-
-    # Update DB
+    # Update DB (source of truth)
     meta = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
     if not meta:
-        meta = JobMetadata(job_id=job_id)
-        db.add(meta)
+        raise HTTPException(404, "Job not found")
     if req.title is not None:
         meta.title = req.title
     if req.artist is not None:
@@ -2524,17 +2561,20 @@ def update_job_metadata(job_id: str, req: UpdateJobRequest,
         meta.year = req.year
     db.commit()
 
-    # Also update job.json (pipeline reads it) and in-memory job
-    try:
-        data = json.loads(job_json.read_text())
-        if req.title is not None:
-            data["title"] = req.title
-        if req.artist is not None:
-            data["artist"] = req.artist
-        job_json.write_text(json.dumps(data, default=str))
-    except (json.JSONDecodeError, OSError):
-        pass
+    # Also update local job.json if it exists (pipeline reads it)
+    job_json = JOBS_DIR / job_id / "job.json"
+    if job_json.exists():
+        try:
+            data = json.loads(job_json.read_text())
+            if req.title is not None:
+                data["title"] = req.title
+            if req.artist is not None:
+                data["artist"] = req.artist
+            job_json.write_text(json.dumps(data, default=str))
+        except (json.JSONDecodeError, OSError):
+            pass
 
+    # Update in-memory job if currently active
     with _lock:
         if _job is not None and _job.get("id") == job_id:
             if req.title is not None:
@@ -2554,16 +2594,28 @@ def delete_job(job_id: str, user: User = Depends(get_current_user)):
     if not is_admin(user) and user.permissions and not user.permissions.can_delete_library:
         raise HTTPException(403, "You don't have permission to delete songs")
 
+    # Check job exists locally or in DB
     job_dir = JOBS_DIR / job_id
-    if not job_dir.exists() or not job_dir.is_dir():
+    has_local = job_dir.exists() and job_dir.is_dir()
+    _db = SessionLocal()
+    has_db = _db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first() is not None
+    if not has_local and not has_db:
+        _db.close()
         raise HTTPException(404, "Job not found")
 
     # Don't allow deleting a running job
     with _lock:
         if _job is not None and _job.get("id") == job_id and _job.get("status") == "running":
+            _db.close()
             raise HTTPException(409, "Cannot delete a running job")
 
-    shutil.rmtree(job_dir)
+    # Delete local files
+    if has_local:
+        shutil.rmtree(job_dir)
+
+    # Delete from R2
+    if storage.is_r2():
+        storage.delete_prefix(f"jobs/{job_id}/")
 
     # Clear current job reference if it was the deleted one
     with _lock:
@@ -2572,14 +2624,14 @@ def delete_job(job_id: str, user: User = Depends(get_current_user)):
 
     # Clean up DB metadata (votes, comments, job metadata)
     try:
-        _db = SessionLocal()
         _db.query(JobMetadata).filter(JobMetadata.job_id == job_id).delete()
         _db.query(Vote).filter(Vote.job_id == job_id).delete()
         _db.query(Comment).filter(Comment.job_id == job_id).delete()
         _db.commit()
-        _db.close()
     except Exception:
-        pass
+        _db.rollback()
+    finally:
+        _db.close()
 
     return {"deleted": True}
 
@@ -2603,37 +2655,30 @@ def download_file(job_id: str, filename: str,
         if filename == "vocals.mp3" and not p.can_download_vocals:
             raise HTTPException(403, "You don't have permission to download vocal files")
 
-    path = JOBS_DIR / job_id / filename
-    if not path.exists():
-        raise HTTPException(404, "File not found")
     media_types = {
         "karaoke.mp4": "video/mp4",
         "instrumental.mp3": "audio/mpeg",
         "vocals.mp3": "audio/mpeg",
     }
     media_type = media_types.get(filename, "text/plain")
-    return FileResponse(
-        path,
-        media_type=media_type,
-        filename=filename,
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
+    return _serve_file(job_id, filename, media_type, "File")
 
 
 @app.get("/api/jobs/{job_id}/artifact/{filepath:path}")
 def download_artifact(job_id: str, filepath: str):
     """Download an intermediate artifact from a job's output directory."""
-    # Prevent path traversal
     if ".." in filepath:
         raise HTTPException(400, "Invalid path")
     path = JOBS_DIR / job_id / filepath
-    if not path.exists() or not path.is_file():
-        raise HTTPException(404, "Artifact not found")
-    return FileResponse(
-        path,
-        filename=path.name,
-        headers={"Content-Disposition": f"attachment; filename={path.name}"},
-    )
+    if path.exists() and path.is_file():
+        return FileResponse(
+            path, filename=path.name,
+            headers={"Content-Disposition": f"attachment; filename={path.name}"},
+        )
+    url = storage.get_url(f"jobs/{job_id}/{filepath}")
+    if url:
+        return RedirectResponse(url, status_code=302)
+    raise HTTPException(404, "Artifact not found")
 
 
 # ---------------------------------------------------------------------------
@@ -2653,15 +2698,25 @@ async def submit_feedback(
 ):
     screenshot_path = None
     if screenshot and screenshot.filename:
-        feedback_dir = Path("output/feedback")
-        feedback_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{secrets.token_hex(8)}_{screenshot.filename}"
-        filepath = feedback_dir / filename
         content = await screenshot.read()
         if len(content) > 5 * 1024 * 1024:
             raise HTTPException(400, "Screenshot must be under 5MB")
-        filepath.write_bytes(content)
-        screenshot_path = str(filepath)
+        if storage.is_r2():
+            # Write temp file, upload to R2, store R2 key as path
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=filename) as tmp:
+                tmp.write(content)
+                tmp_path = Path(tmp.name)
+            storage.upload(f"feedback/{filename}", tmp_path)
+            tmp_path.unlink(missing_ok=True)
+            screenshot_path = f"r2:feedback/{filename}"
+        else:
+            feedback_dir = Path("output/feedback")
+            feedback_dir.mkdir(parents=True, exist_ok=True)
+            filepath = feedback_dir / filename
+            filepath.write_bytes(content)
+            screenshot_path = str(filepath)
 
     fb = Feedback(
         user_id=user.id,
@@ -2758,9 +2813,12 @@ def admin_delete_feedback(feedback_id: str, admin: User = Depends(require_admin)
         raise HTTPException(404, "Feedback not found")
     # Delete screenshot file if exists
     if fb.screenshot_path:
-        p = Path(fb.screenshot_path)
-        if p.exists():
-            p.unlink(missing_ok=True)
+        if fb.screenshot_path.startswith("r2:"):
+            storage.delete(fb.screenshot_path[3:])
+        else:
+            p = Path(fb.screenshot_path)
+            if p.exists():
+                p.unlink(missing_ok=True)
     db.delete(fb)
     db.commit()
     return {"deleted": True}
@@ -2772,6 +2830,11 @@ def admin_get_screenshot(feedback_id: str, admin: User = Depends(require_admin),
     fb = db.query(Feedback).filter(Feedback.id == feedback_id).first()
     if not fb or not fb.screenshot_path:
         raise HTTPException(404, "Screenshot not found")
+    if fb.screenshot_path.startswith("r2:"):
+        url = storage.get_url(fb.screenshot_path[3:])
+        if url:
+            return RedirectResponse(url, status_code=302)
+        raise HTTPException(404, "Screenshot file missing")
     p = Path(fb.screenshot_path)
     if not p.exists():
         raise HTTPException(404, "Screenshot file missing")
@@ -2851,25 +2914,9 @@ def admin_stats(admin: User = Depends(require_admin), db: Session = Depends(get_
     invitation_count = db.query(func.count(Invitation.id)).scalar()
     feedback_new = db.query(func.count(Feedback.id)).filter(Feedback.status == "new").scalar()
 
-    # Library stats from disk
-    total_songs = 0
-    total_size_bytes = 0
-    if JOBS_DIR.exists():
-        for d in JOBS_DIR.iterdir():
-            if not d.is_dir():
-                continue
-            job_json = d / "job.json"
-            if not job_json.exists():
-                continue
-            try:
-                data = json.loads(job_json.read_text())
-            except (json.JSONDecodeError, OSError):
-                continue
-            if data.get("status") == "done":
-                total_songs += 1
-                for f in d.iterdir():
-                    if f.is_file():
-                        total_size_bytes += f.stat().st_size
+    # Library stats from DB
+    total_songs = db.query(func.count(JobMetadata.job_id)).filter(JobMetadata.status == "done").scalar() or 0
+    total_size_bytes = db.query(func.coalesce(func.sum(JobMetadata.file_size_bytes), 0)).filter(JobMetadata.status == "done").scalar() or 0
 
     # Queue status
     with _lock:
@@ -3344,20 +3391,25 @@ def send_invitations(req: InviteRequest, user: User = Depends(get_current_user),
         remaining = None  # unlimited
 
     sent = []
+    skipped = []
     for email in req.emails[:10]:  # max 10 at a time
         if remaining is not None and len(sent) >= remaining:
-            break
+            skipped.append({"email": email, "reason": "No invitations remaining"})
+            continue
         email = email.strip().lower()
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            skipped.append({"email": email, "reason": "Invalid email address"})
             continue
         # Skip if already a user
         if db.query(User).filter(User.email == email).first():
+            skipped.append({"email": email, "reason": "Already a member"})
             continue
         # Skip if already invited by this user
         existing = db.query(Invitation).filter(
             Invitation.inviter_id == user.id, Invitation.email == email
         ).first()
         if existing:
+            skipped.append({"email": email, "reason": "Already invited"})
             continue
         inv = Invitation(inviter_id=user.id, email=email)
         db.add(inv)
@@ -3370,6 +3422,7 @@ def send_invitations(req: InviteRequest, user: User = Depends(get_current_user),
     total_used = db.query(Invitation).filter(Invitation.inviter_id == user.id).count()
     return {
         "sent": sent,
+        "skipped": skipped,
         "count": len(sent),
         "remaining": (max_inv - total_used) if max_inv > 0 else None,
     }

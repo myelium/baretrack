@@ -268,25 +268,12 @@
     background: #1e1a16;
     border-left: 1px solid #2a2520;
     border-right: 1px solid #2a2520;
-    cursor: default;
+    cursor: pointer;
     position: relative;
     z-index: 5;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s;
   }
-  .pane-divider:hover { background: #2a2520; }
-
-  .divider-btn {
-    background: none;
-    border: none;
-    color: #6b6050;
-    cursor: pointer;
-    font-size: 0.65rem;
-    padding: 6px 2px;
-    line-height: 1;
-    transition: color 0.2s;
-    display: block;
-  }
-  .divider-btn:hover { color: #b48c3c; }
+  .pane-divider:hover { background: #2a2520; border-color: #b48c3c; }
 
   .pane-library {
     flex: 1;
@@ -313,6 +300,7 @@
     .split-pane { flex-direction: column; }
     .pane-production { flex-basis: auto !important; min-width: 0; max-width: none; max-height: 40vh; }
     .pane-divider { flex-direction: row; height: 12px; width: 100%; border-left: none; border-right: none; border-top: 1px solid #2a2520; border-bottom: 1px solid #2a2520; }
+    .pane-divider:hover { border-color: #b48c3c; }
     .pane-library { min-width: 0; }
   }
 
@@ -1512,25 +1500,12 @@
     border-left: 1px solid #2a2520;
     border-right: 1px solid #2a2520;
     border-radius: 0;
-    cursor: default;
+    cursor: pointer;
     position: relative;
     z-index: 5;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s;
   }
-  .player-comments-divider:hover { background: #2a2520; }
-  .player-comments-divider .divider-btn {
-    background: none;
-    border: none;
-    color: #6b6050;
-    cursor: pointer;
-    font-size: 0.65rem;
-    padding: 6px 2px;
-    line-height: 1;
-    transition: color 0.2s, transform 0.3s ease;
-    display: block;
-  }
-  .player-comments-divider .divider-btn:hover { color: #b48c3c; }
-  .player-comments-divider .divider-btn.flipped { transform: rotate(180deg); }
+  .player-comments-divider:hover { background: #2a2520; border-color: #b48c3c; }
   .player-comments-side .lyrics-tabs {
     padding: 8px 14px 8px;
     flex-shrink: 0;
@@ -1556,7 +1531,7 @@
     .player-comments-side { flex: none; max-height: 300px; }
     .player-comments-side.collapsed { max-height: 0; flex: none; }
     .player-comments-divider { flex-direction: row; height: 12px; width: 100%; border-left: none; border-right: none; border-top: 1px solid #2a2520; border-bottom: 1px solid #2a2520; }
-    .player-comments-divider .divider-btn.flipped { transform: rotate(90deg); }
+    .player-comments-divider:hover { border-color: #b48c3c; }
   }
 
   /* --- Lyrics section tabs --- */
@@ -2352,9 +2327,7 @@
   </div>
 
   <!-- DIVIDER -->
-  <div class="pane-divider" id="pane-divider">
-    <button class="divider-btn" onclick="expandLibrary()" title="Toggle Production">&#9654;</button>
-  </div>
+  <div class="pane-divider" id="pane-divider" onclick="expandLibrary()" title="Toggle Production"></div>
 
   <!-- === JUKEBOX PANE === -->
   <div class="pane-library" id="pane-library">
@@ -2506,9 +2479,7 @@
           <div class="comments-list" id="comments-list"></div>
         </div>
       </div>
-      <div class="player-comments-divider">
-        <button class="divider-btn" onclick="togglePlayerComments()" title="Toggle Lyrics">&#9664;</button>
-      </div>
+      <div class="player-comments-divider" onclick="togglePlayerComments()" title="Toggle Lyrics"></div>
       <div class="player-comments-side" id="player-comments-side">
         <div class="lyrics-tabs" id="lyrics-tabs" style="display:none;">
           <button class="lyrics-tab active" id="tab-live-lyrics" onclick="switchLyricsTab('live')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Live Lyrics</button>
@@ -2663,10 +2634,8 @@ function closePlayer() {
 
 function togglePlayerComments() {
   const panel = document.getElementById('player-comments-side');
-  const btn = document.querySelector('.player-comments-divider .divider-btn');
   if (!panel) return;
   panel.classList.toggle('collapsed');
-  if (btn) btn.classList.toggle('flipped');
 }
 
 let _currentLyricsTab = 'live';
@@ -5733,6 +5702,15 @@ async function loadAdminSettings() {
           <div><label style="font-size:0.75rem;color:var(--text-dim);">Max Disk Space (MB)</label>
             <input type="number" id="set-max-disk" value="${s.max_disk_space_mb || 0}" min="0" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;" />
             <p style="font-size:0.65rem;color:var(--text-dim);margin:2px 0 0;">0 = unlimited. Production pauses when exceeded.</p></div>
+          <div><label style="font-size:0.75rem;color:var(--text-dim);">Demucs Model</label>
+            <select id="set-demucs-model" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;">
+              <option value="htdemucs_ft" ${(s.demucs_model || 'htdemucs_ft') === 'htdemucs_ft' ? 'selected' : ''}>htdemucs_ft (best quality, ~3GB RAM)</option>
+              <option value="htdemucs" ${s.demucs_model === 'htdemucs' ? 'selected' : ''}>htdemucs (lighter, ~1.5GB RAM)</option>
+            </select>
+            <p style="font-size:0.65rem;color:var(--text-dim);margin:2px 0 0;">Audio separation model. Use lighter model if running out of memory.</p></div>
+          <div><label style="font-size:0.75rem;color:var(--text-dim);">Max Subtitle Languages</label>
+            <input type="number" id="set-max-sub-langs" value="${s.max_subtitle_languages || 3}" min="1" max="10" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;" />
+            <p style="font-size:0.65rem;color:var(--text-dim);margin:2px 0 0;">Max languages per subtitled/both mode song.</p></div>
         </div>
 
         <div style="display:flex;gap:8px;align-items:center;">
@@ -5769,6 +5747,8 @@ async function saveAdminSettings() {
     feature_wishlist: document.getElementById('set-feat-wishlist').checked,
     allowed_modes: modes,
     max_disk_space_mb: parseInt(document.getElementById('set-max-disk').value) || 0,
+    demucs_model: document.getElementById('set-demucs-model').value,
+    max_subtitle_languages: parseInt(document.getElementById('set-max-sub-langs').value) || 3,
   };
 
   try {
@@ -6313,8 +6293,18 @@ async function sendInvitations() {
       statusEl.textContent = data.detail || 'Failed to send invitations.';
       statusEl.style.display = 'block';
     } else {
-      statusEl.style.color = 'var(--success)';
-      statusEl.textContent = `${data.count} invitation${data.count !== 1 ? 's' : ''} sent!`;
+      let msg = data.count > 0
+        ? `${data.count} invitation${data.count !== 1 ? 's' : ''} sent!`
+        : 'No invitations sent.';
+      const skipped = data.skipped || [];
+      if (skipped.length > 0) {
+        msg += '\n' + skipped.map(s => `${s.email}: ${s.reason}`).join('\n');
+        statusEl.style.color = data.count > 0 ? 'var(--success)' : 'var(--error)';
+      } else {
+        statusEl.style.color = 'var(--success)';
+      }
+      statusEl.style.whiteSpace = 'pre-line';
+      statusEl.textContent = msg;
       statusEl.style.display = 'block';
       updateRemainingCount(data.remaining);
     }

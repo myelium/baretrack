@@ -22,3 +22,8 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_session():
+    """Create a standalone DB session for use outside FastAPI request context (e.g. background threads)."""
+    return SessionLocal()

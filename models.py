@@ -1,9 +1,11 @@
 """SQLAlchemy models for users, permissions, feedback, playlists, comments, and invitations."""
 
+import json
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -204,6 +206,26 @@ class JobMetadata(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
+    # Extended fields for library listing (replaces job.json scanning)
+    url: Mapped[str | None] = mapped_column(String(512))
+    mode: Mapped[str | None] = mapped_column(String(20))  # karaoke/subtitled/both
+    languages: Mapped[str | None] = mapped_column(Text)  # JSON list
+    thumbnail: Mapped[str | None] = mapped_column(String(512))
+    channel: Mapped[str | None] = mapped_column(String(255))
+    upload_date: Mapped[str | None] = mapped_column(String(20))
+    categories: Mapped[str | None] = mapped_column(Text)  # JSON list
+    tags: Mapped[str | None] = mapped_column(Text)  # JSON list
+    finished_at: Mapped[str | None] = mapped_column(String(50))
+    audio_duration: Mapped[float | None] = mapped_column(sa.Float)
+    language_detected: Mapped[str | None] = mapped_column(String(10))
+    status: Mapped[str | None] = mapped_column(String(20), default="done")
+    added_by: Mapped[str | None] = mapped_column(String(255))
+    added_by_id: Mapped[str | None] = mapped_column(String(255))
+    error: Mapped[str | None] = mapped_column(Text)
+    file_size_bytes: Mapped[int | None] = mapped_column(sa.BigInteger)
+    lyrics: Mapped[str | None] = mapped_column(Text)  # JSON array of {text, start, end}
+    subtitles: Mapped[str | None] = mapped_column(Text)  # JSON: {"en": "srt content", "vi": "srt content"}
+
     def to_dict(self):
         return {
             "job_id": self.job_id,
@@ -213,6 +235,28 @@ class JobMetadata(Base):
             "view_count": self.view_count,
             "analysis_text": self.analysis_text,
             "analysis_song_info": self.analysis_song_info,
+        }
+
+    def to_library_dict(self):
+        return {
+            "id": self.job_id,
+            "title": self.title or "Unknown",
+            "artist": self.artist or "",
+            "url": self.url,
+            "mode": self.mode or "karaoke",
+            "languages": json.loads(self.languages) if self.languages else [],
+            "thumbnail": self.thumbnail,
+            "channel": self.channel,
+            "upload_date": self.upload_date,
+            "categories": json.loads(self.categories) if self.categories else [],
+            "tags": json.loads(self.tags) if self.tags else [],
+            "finished_at": self.finished_at,
+            "audio_duration": self.audio_duration,
+            "year": self.year,
+            "language": self.language_detected,
+            "added_by": self.added_by,
+            "added_by_id": self.added_by_id,
+            "view_count": self.view_count or 0,
         }
 
 
@@ -305,3 +349,12 @@ class ActivityLog(Base):
     event_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     detail: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+
+
+class AppConfig(Base):
+    """Key-value store for system config (settings, prompts, stats, queue)."""
+    __tablename__ = "app_config"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

@@ -20,3 +20,4 @@ fastapi
 uvicorn[standard]
 python-dotenv
 resend
+boto3
