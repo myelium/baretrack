@@ -734,6 +734,38 @@ def _run_migrations() -> None:
             _db.commit()
             _db.close()
 
+    # --- JobMetadata: subtitles column ---
+    if "job_metadata" in set(insp.get_table_names()):
+        jm_cols2 = {c["name"] for c in insp.get_columns("job_metadata")}
+        if "subtitles" not in jm_cols2:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE job_metadata ADD COLUMN subtitles TEXT"))
+            # Backfill from local SRT files or R2
+            _db = get_session()
+            for m in _db.query(JobMetadata).filter(JobMetadata.status == "done").all():
+                srt_data = {}
+                job_dir = JOBS_DIR / m.job_id
+                if job_dir.exists():
+                    for srt in job_dir.glob("subtitles_*.srt"):
+                        lang = srt.stem.replace("subtitles_", "")
+                        srt_data[lang] = srt.read_text()
+                elif storage.is_r2():
+                    # Try to list SRT files from R2
+                    try:
+                        keys = storage.list_keys(f"jobs/{m.job_id}/subtitles_")
+                        for key in keys:
+                            fname = key.split("/")[-1]
+                            lang = fname.replace("subtitles_", "").replace(".srt", "")
+                            content = storage.read_text(key)
+                            if content:
+                                srt_data[lang] = content
+                    except Exception:
+                        pass
+                if srt_data:
+                    m.subtitles = json.dumps(srt_data)
+            _db.commit()
+            _db.close()
+
     # --- Wishlist tables ---
     tables = set(insp.get_table_names())
     if "wishlist_items" not in tables:
@@ -1699,6 +1731,11 @@ def get_subtitles_lang(job_id: str, lang_code: str, db: Session = Depends(get_db
     path = JOBS_DIR / job_id / f"subtitles_{lang_code}.srt"
     if path.exists():
         return FileResponse(path, media_type="text/plain")
+    # Fallback to R2
+    r2_key = f"jobs/{job_id}/subtitles_{lang_code}.srt"
+    url = storage.get_url(r2_key)
+    if url:
+        return RedirectResponse(url, status_code=302)
     raise HTTPException(404, "Subtitles not found")
 
 
@@ -1717,6 +1754,14 @@ def get_subtitles(job_id: str, db: Session = Depends(get_db)):
     if job_dir.exists():
         for f in sorted(job_dir.glob("subtitles_*.srt")):
             return FileResponse(f, media_type="text/plain")
+    # Fallback to R2
+    if meta:
+        langs = json.loads(meta.languages or "[]")
+        for lang in langs:
+            r2_key = f"jobs/{job_id}/subtitles_{lang}.srt"
+            url = storage.get_url(r2_key)
+            if url:
+                return RedirectResponse(url, status_code=302)
     raise HTTPException(404, "Subtitles not found")
 
 
@@ -2045,12 +2090,17 @@ def admin_delete_user(user_id: str, admin: User = Depends(require_admin),
 def admin_activity(admin: User = Depends(require_admin),
                    db: Session = Depends(get_db),
                    event_type: str | None = None,
+                   since_hours: float | None = None,
                    limit: int = 100,
                    offset: int = 0):
     """Return recent activity log entries with optional filtering."""
     q = db.query(ActivityLog).order_by(ActivityLog.created_at.desc())
     if event_type:
         q = q.filter(ActivityLog.event_type == event_type)
+    if since_hours is not None and since_hours > 0:
+        from datetime import timedelta
+        cutoff = datetime.utcnow() - timedelta(hours=since_hours)
+        q = q.filter(ActivityLog.created_at >= cutoff)
     total = q.count()
     entries = q.offset(offset).limit(min(limit, 500)).all()
     return {

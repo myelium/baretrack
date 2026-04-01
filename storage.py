@@ -47,6 +47,12 @@ class LocalStorage:
             return []
         return [f"{prefix}/{f.name}" for f in path.iterdir() if f.is_file()]
 
+    def read_text(self, key: str) -> str | None:
+        path = JOBS_DIR.parent / key
+        if path.exists():
+            return path.read_text()
+        return None
+
     def is_r2(self) -> bool:
         return False
 
@@ -120,6 +126,14 @@ class R2Storage:
         except Exception as e:
             logger.error("Failed to list R2 keys with prefix %s: %s", prefix, e)
             return []
+
+    def read_text(self, key: str) -> str | None:
+        """Read a text file from R2. Returns None if not found."""
+        try:
+            resp = self._client.get_object(Bucket=self._bucket_name, Key=key)
+            return resp["Body"].read().decode("utf-8")
+        except Exception:
+            return None
 
     def is_r2(self) -> bool:
         return True
