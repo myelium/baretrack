@@ -888,6 +888,46 @@
   .vocal-toggle-inline .toggle-label {
     font-size: 0.75rem;
   }
+  .vocal-volume-control {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .vocal-volume-control .vocal-icon {
+    cursor: pointer;
+    color: var(--text-dim);
+    transition: color 0.2s;
+    flex-shrink: 0;
+  }
+  .vocal-volume-control .vocal-icon:hover { color: var(--accent); }
+  .vocal-volume-control .vocal-icon.active { color: var(--accent); }
+  .vocal-volume-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 60px;
+    height: 4px;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+    background: linear-gradient(to right, var(--accent) var(--vol-pct, 100%), #3a3226 var(--vol-pct, 100%));
+  }
+  .vocal-volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .vocal-volume-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    background: var(--accent);
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+  }
   .karaoke-fullscreen-btn-inline {
     background: none;
     border: 1px solid var(--border);
@@ -1619,8 +1659,8 @@
   }
   .player-overlay-actions {
     position: absolute;
-    top: 20px;
-    right: 24px;
+    top: 8px;
+    right: 8px;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -4024,7 +4064,6 @@ function switchTab(tab, jobId) {
   // Destroy vocals sync when leaving video tab
   if (tab !== 'video') destroyVocalsSync();
 
-  const dlIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
   const shareIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`;
   const shareBtn = userCan('can_share_library') ? `<button class="player-share-btn" onclick="sharePlayer()" title="Copy link">${shareIcon}</button>` : '';
 
@@ -4032,20 +4071,18 @@ function switchTab(tab, jobId) {
 
   if (tab === 'video') {
     _currentPlayerTab = 'video';
-    const dlBtn = userCan('can_download_karaoke') ? `<a class="btn-download-sm" href="/api/jobs/${id}/download/karaoke.mp4">${dlIcon} Download</a>` : '';
     area.innerHTML = `
       <div class="video-container" id="karaoke-video-container">
         <video id="media-el" controls preload="auto" src="/api/jobs/${id}/video" autoplay></video>
       </div>
       <div class="tab-download">
         <div class="tab-download-left">
-          ${dlBtn}
-          <div class="vocal-toggle-inline">
-            <label class="toggle-switch" title="Toggle vocals">
-              <input type="checkbox" id="vocal-toggle-cb" onchange="toggleVocals(this.checked)">
-              <span class="toggle-slider"></span>
-            </label>
+          <div class="vocal-volume-control">
             <span class="toggle-label">Vocals</span>
+            <svg class="vocal-icon active" id="vocal-icon" onclick="toggleVocalsMute()" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" title="Toggle vocals">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+            <input type="range" id="vocal-volume-slider" class="vocal-volume-slider" min="0" max="100" value="100" oninput="setVocalsVolume(this.value)">
           </div>
           <button class="karaoke-fullscreen-btn-inline" onclick="toggleKaraokeFullscreen()" title="Fullscreen">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
@@ -4059,10 +4096,8 @@ function switchTab(tab, jobId) {
         </div>
       </div>`;
   } else if (tab === 'instrumental') {
-    const dlBtn = userCan('can_download_instrumental') ? `<a class="btn-download-sm" href="/api/jobs/${id}/download/instrumental.mp3">${dlIcon} Download Instrumental</a>` : '';
     area.innerHTML = `
-      <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/instrumental"></audio>
-      <div class="tab-download">${dlBtn}</div>`;
+      <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/instrumental"></audio>`;
   } else if (tab === 'subtitled') {
     _currentPlayerTab = 'subtitled';
     // Subtitled tab for "both" mode — render YouTube player with subtitle overlay
@@ -4079,10 +4114,8 @@ function switchTab(tab, jobId) {
     setTimeout(_syncPlayerHeight, 100);
     return;
   } else {
-    const dlBtn = userCan('can_download_vocals') ? `<a class="btn-download-sm" href="/api/jobs/${id}/download/vocals.mp3">${dlIcon} Download Vocals</a>` : '';
     area.innerHTML = `
-      <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/vocals"></audio>
-      <div class="tab-download">${dlBtn}</div>`;
+      <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/vocals"></audio>`;
   }
 
   activeMediaEl = document.getElementById('media-el');
@@ -4098,8 +4131,6 @@ function switchTab(tab, jobId) {
   // Pre-load vocals and auto-enable once video actually starts playing
   if (tab === 'video') {
     preloadVocalsAudio(id);
-    const cb = document.getElementById('vocal-toggle-cb');
-    if (cb) cb.checked = true;
     // We can't call .play() on the vocals Audio until the user interacts.
     // The video element has autoplay, but that doesn't grant play permission
     // to a separate Audio object. So we hook into the video's first 'playing'
@@ -4107,9 +4138,10 @@ function switchTab(tab, jobId) {
     const startVocalsOnce = () => {
       activeMediaEl.removeEventListener('playing', startVocalsOnce);
       if (vocalsAudioEl) {
-        vocalsAudioEl.volume = 1;
+        vocalsAudioEl.volume = _vocalsVolume;
         vocalsOn = true;
         _playVocals();
+        _updateVocalIcon();
       }
     };
     activeMediaEl.addEventListener('playing', startVocalsOnce);
@@ -4142,17 +4174,55 @@ function preloadVocalsAudio(jobId) {
   // Just preload — don't play until user interaction
 }
 
+let _vocalsVolume = 1.0; // last non-zero volume (for unmute restore)
+
 function toggleVocals(on) {
   vocalsOn = on;
   if (!vocalsAudioEl || !activeMediaEl) return;
 
   if (on && !activeMediaEl.paused) {
-    vocalsAudioEl.volume = 1;
+    vocalsAudioEl.volume = _vocalsVolume;
     _playVocals();
   } else {
-    // Either toggled off, or video is paused — ensure vocals are silent & stopped
     vocalsAudioEl.pause();
     if (!on) vocalsAudioEl.volume = 0;
+  }
+  _updateVocalIcon();
+}
+
+function setVocalsVolume(val) {
+  const v = parseInt(val) / 100;
+  const slider = document.getElementById('vocal-volume-slider');
+  if (slider) slider.style.setProperty('--vol-pct', val + '%');
+  if (v > 0) _vocalsVolume = v;
+  if (vocalsAudioEl) vocalsAudioEl.volume = v;
+  const wasOn = vocalsOn;
+  vocalsOn = v > 0;
+  if (vocalsOn && !wasOn && activeMediaEl && !activeMediaEl.paused) {
+    _playVocals();
+  } else if (!vocalsOn && wasOn && vocalsAudioEl) {
+    vocalsAudioEl.pause();
+  }
+  _updateVocalIcon();
+}
+
+function toggleVocalsMute() {
+  if (vocalsOn) {
+    setVocalsVolume(0);
+    const slider = document.getElementById('vocal-volume-slider');
+    if (slider) slider.value = 0;
+  } else {
+    const restore = Math.round(_vocalsVolume * 100);
+    setVocalsVolume(restore);
+    const slider = document.getElementById('vocal-volume-slider');
+    if (slider) slider.value = restore;
+  }
+}
+
+function _updateVocalIcon() {
+  const icon = document.getElementById('vocal-icon');
+  if (icon) {
+    icon.classList.toggle('active', vocalsOn);
   }
 }
 
