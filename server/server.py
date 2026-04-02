@@ -34,7 +34,8 @@ import logging
 import os
 import shutil
 
-JOBS_DIR = Path("output/jobs")
+_SERVER_DIR = Path(__file__).resolve().parent
+JOBS_DIR = _SERVER_DIR / "output" / "jobs"
 
 
 def _log_activity(db, user, event_type: str, detail: dict | None = None) -> None:
@@ -1878,7 +1879,7 @@ async def submit_feedback(
             tmp_path.unlink(missing_ok=True)
             screenshot_path = f"r2:feedback/{filename}"
         else:
-            feedback_dir = Path("output/feedback")
+            feedback_dir = _SERVER_DIR / "output" / "feedback"
             feedback_dir.mkdir(parents=True, exist_ok=True)
             filepath = feedback_dir / filename
             filepath.write_bytes(content)
@@ -2643,17 +2644,17 @@ def community_network(admin: User = Depends(require_admin), db: Session = Depend
 def index(user: User | None = Depends(get_optional_user)):
     # Always serve the app — the frontend handles auth checks
     # This allows shared watch links (/#/watch/id) to work without login
-    return FileResponse("static/index.html")
+    return FileResponse(_SERVER_DIR / "static" / "index.html")
 
 
 @app.get("/login")
 def login_page():
-    return FileResponse("static/login.html")
+    return FileResponse(_SERVER_DIR / "static" / "login.html")
 
 
 @app.get("/favicon.ico")
 def favicon():
-    return FileResponse("static/favicon.png", media_type="image/png")
+    return FileResponse(_SERVER_DIR / "static" / "favicon.png", media_type="image/png")
 
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(_SERVER_DIR / "static")), name="static")

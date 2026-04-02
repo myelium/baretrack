@@ -6,7 +6,9 @@ __pycache__/
 
 # Output
 output/
-alembic/versions/
+server/output/
+worker_output/
+worker/worker_output/
 
 # OS
 .DS_Store

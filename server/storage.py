@@ -7,7 +7,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").lower()
-JOBS_DIR = Path("output/jobs")
+_SERVER_DIR = Path(__file__).resolve().parent
+JOBS_DIR = _SERVER_DIR / "output" / "jobs"
 
 
 class LocalStorage:

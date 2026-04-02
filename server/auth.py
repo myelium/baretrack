@@ -111,7 +111,7 @@ def create_user_with_permissions(db: Session, email: str, name: str,
     # Apply admin-configured defaults if settings file exists
     import json
     from pathlib import Path
-    _settings_path = Path("output/jobs") / "settings.json"
+    _settings_path = Path(__file__).resolve().parent / "output" / "jobs" / "settings.json"
     settings = {}
     if _settings_path.exists():
         try:
