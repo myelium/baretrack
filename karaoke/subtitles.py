@@ -106,11 +106,12 @@ def build_srt(segments: list[Segment], output_path: Path) -> Path:
     """
     Build a standard SRT subtitle file from Whisper segments.
 
-    Groups words into lines of WORDS_PER_LINE, using actual word timestamps.
+    Groups words into lines of WORDS_PER_LINE. Each cue stays visible
+    until the next cue starts, so translated subtitles have enough
+    reading time.
     """
-    entries = []
-    idx = 1
-
+    # First pass: collect all cues with their start/end times
+    cues = []
     for seg in segments:
         words = seg.words
         n_lines = math.ceil(len(words) / WORDS_PER_LINE)
@@ -118,15 +119,24 @@ def build_srt(segments: list[Segment], output_path: Path) -> Path:
         for i in range(n_lines):
             chunk = words[i * WORDS_PER_LINE : (i + 1) * WORDS_PER_LINE]
             line_start = chunk[0].start
-            if i < n_lines - 1:
-                line_end = words[(i + 1) * WORDS_PER_LINE].start
-            else:
-                line_end = seg.end
+            line_end = chunk[-1].end
             text = " ".join(w.text for w in chunk)
-            entries.append(
-                f"{idx}\n{_srt_time(line_start)} --> {_srt_time(line_end)}\n{text}"
-            )
-            idx += 1
+            cues.append({"start": line_start, "end": line_end, "text": text})
+
+    # Second pass: extend each cue's end to the next cue's start
+    # so subtitles stay on screen until replaced
+    for i in range(len(cues) - 1):
+        next_start = cues[i + 1]["start"]
+        # Extend to next cue start, but cap the gap at 5 seconds
+        # to avoid subtitles lingering during long instrumental breaks
+        max_end = cues[i]["end"] + 5.0
+        cues[i]["end"] = min(next_start, max_end)
+
+    entries = []
+    for idx, cue in enumerate(cues, 1):
+        entries.append(
+            f"{idx}\n{_srt_time(cue['start'])} --> {_srt_time(cue['end'])}\n{cue['text']}"
+        )
 
     output_path.write_text("\n\n".join(entries) + "\n")
     return output_path

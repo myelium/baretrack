@@ -32,7 +32,7 @@ from pydantic import BaseModel
 
 # Pipeline imports — these are the core processing modules
 from karaoke.compose import compose
-from karaoke.download import download, download_audio
+from karaoke.download import download, download_audio, fetch_metadata
 from karaoke.separate import separate
 from karaoke.subtitles import build_ass, build_srt
 from karaoke.transcribe import transcribe
@@ -54,7 +54,14 @@ WORK_DIR = Path(os.getenv("WORKER_WORK_DIR", "worker_output"))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Baretraks Worker")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    _retry_undelivered()
+    yield
+
+app = FastAPI(title="Baretraks Worker", lifespan=lifespan)
 
 # ---------------------------------------------------------------------------
 # State
@@ -153,6 +160,10 @@ def _report_progress(callback_url: str, callback_key: str, job_id: str, **kwargs
     now = time.monotonic()
     # Always send for step changes, debounce for progress-only updates
     is_step_change = "step" in kwargs or "status" in kwargs
+    if is_step_change:
+        step = kwargs.get("step", "")
+        name = kwargs.get("step_name", kwargs.get("status", ""))
+        logger.info("[%s] %s%s", job_id[:20], f"Step {step}: " if step else "", name)
     if not is_step_change and (now - _last_progress_time) < 1.0:
         return
     _last_progress_time = now
@@ -275,7 +286,8 @@ def _run_karaoke_pipeline(job_id: str, url: str, output_dir: Path,
     _report_progress(callback_url, callback_key, job_id,
                      step=3, step_name="Transcribing lyrics", step_progress=0.0)
     transcribe_path = audio_path if audio_path.exists() else vocals_mp3
-    segments, detected_lang = transcribe(transcribe_path, device=device)
+    segments, detected_lang = transcribe(transcribe_path, device=device,
+                                            engine=settings.get("transcription_engine", "whisper"))
     if audio_path.exists() and audio_path != vocals_mp3:
         audio_path.unlink(missing_ok=True)
     _report_progress(callback_url, callback_key, job_id, language_detected=detected_lang)
@@ -373,7 +385,8 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
     t0 = time.monotonic()
     _report_progress(callback_url, callback_key, job_id,
                      step=2, step_name="Transcribing", step_progress=0.0)
-    segments, detected_lang = transcribe(audio_path, device=device)
+    segments, detected_lang = transcribe(audio_path, device=device,
+                                            engine=settings.get("transcription_engine", "whisper"))
     _report_progress(callback_url, callback_key, job_id, language_detected=detected_lang)
 
     words_list = []
@@ -402,8 +415,7 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
                              step=3, step_name=f"Translating ({lang})",
                              step_progress=i / len(target_langs))
             try:
-                translated_srt = translate_srt(source_srt_text, lang,
-                                                detected_language=detected_lang)
+                translated_srt = translate_srt(source_srt_text, lang)
                 srt_name = f"subtitles_{lang}.srt"
                 (output_dir / srt_name).write_text(translated_srt)
                 srt_data[lang] = translated_srt
@@ -473,7 +485,8 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
     _report_progress(callback_url, callback_key, job_id,
                      step=3, step_name="Transcribing lyrics", step_progress=0.0)
     transcribe_path = audio_path if audio_path.exists() else vocals_mp3
-    segments, detected_lang = transcribe(transcribe_path, device=device)
+    segments, detected_lang = transcribe(transcribe_path, device=device,
+                                            engine=settings.get("transcription_engine", "whisper"))
     if audio_path.exists() and audio_path != vocals_mp3:
         audio_path.unlink(missing_ok=True)
     _report_progress(callback_url, callback_key, job_id, language_detected=detected_lang)
@@ -549,8 +562,7 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
                              step=6, step_name=f"Translating ({lang})",
                              step_progress=i / len(target_langs))
             try:
-                translated_srt = translate_srt(source_srt_text, lang,
-                                                detected_language=detected_lang)
+                translated_srt = translate_srt(source_srt_text, lang)
                 srt_name = f"subtitles_{lang}.srt"
                 (output_dir / srt_name).write_text(translated_srt)
                 srt_data[lang] = translated_srt
@@ -605,6 +617,7 @@ def _execute_job(job: dict):
     try:
         _report_progress(callback_url, callback_key, job_id,
                          status="running", step=0, step_name="Starting")
+        pipeline_start = time.monotonic()
 
         if mode == "subtitled":
             result = _run_subtitled_pipeline(
@@ -618,6 +631,12 @@ def _execute_job(job: dict):
             result = _run_karaoke_pipeline(
                 job_id, url, output_dir,
                 callback_url, callback_key, settings)
+
+        pipeline_elapsed = time.monotonic() - pipeline_start
+        if result:
+            durations = result.get("step_durations", {})
+            steps_summary = ", ".join(f"s{k}={v:.1f}s" for k, v in sorted(durations.items()))
+            logger.info("[%s] Pipeline done in %.1fs (%s)", job_id[:20], pipeline_elapsed, steps_summary)
 
         if result is None:
             # Cancelled
@@ -640,6 +659,7 @@ def _execute_job(job: dict):
         r2_keys = []
         total_size = 0
         if upload_files:
+            logger.info("[%s] Uploading %d files to R2...", job_id[:20], len(upload_files))
             urls = _request_upload_urls(callback_url, callback_key,
                                         job_id, list(upload_files.keys()))
             for fname, fpath in upload_files.items():
@@ -737,6 +757,20 @@ def get_status(_=Depends(verify_api_key)):
         }
 
 
+class MetadataRequest(BaseModel):
+    url: str
+
+
+@app.post("/worker/metadata")
+def fetch_metadata_endpoint(req: MetadataRequest, _=Depends(verify_api_key)):
+    """Fetch YouTube metadata without downloading. Called by the app."""
+    try:
+        meta = fetch_metadata(req.url)
+        return meta
+    except Exception as e:
+        raise HTTPException(400, f"Failed to fetch metadata: {e}")
+
+
 @app.post("/worker/jobs")
 def accept_job(req: JobRequest, _=Depends(verify_api_key)):
     with _lock:
@@ -763,7 +797,6 @@ def cancel_job(job_id: str, _=Depends(verify_api_key)):
 # Startup: retry undelivered completions
 # ---------------------------------------------------------------------------
 
-@app.on_event("startup")
 def _retry_undelivered():
     """On startup, check for manifest files from jobs that completed but whose
     callbacks failed. Retry delivering them to the app."""

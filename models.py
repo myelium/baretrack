@@ -192,9 +192,9 @@ class Comment(Base):
         }
 
 
-class JobMetadata(Base):
-    """Enrichment data for processed jobs — lives in DB, not on disk."""
-    __tablename__ = "job_metadata"
+class LibraryItem(Base):
+    """A song in the library. Created when a production job completes."""
+    __tablename__ = "library_items"
 
     job_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     title: Mapped[str | None] = mapped_column(String(512))

@@ -31,7 +31,6 @@ import logging
 import os
 import shutil
 
-from karaoke.download import fetch_metadata
 JOBS_DIR = Path("output/jobs")
 
 
@@ -186,6 +185,27 @@ def _save_workers(workers: list[dict]) -> None:
     _db_config_set("workers", workers)
 
 
+def _fetch_metadata_via_worker(url: str) -> dict | None:
+    """Ask an available worker to fetch YouTube metadata. Returns dict or None."""
+    workers = _load_workers()
+    for w in workers:
+        if not w.get("enabled", True):
+            continue
+        try:
+            headers = {}
+            if w.get("api_key"):
+                headers["Authorization"] = f"Bearer {w['api_key']}"
+            resp = httpx.post(
+                f"{w['url']}/worker/metadata",
+                json={"url": url}, headers=headers, timeout=30,
+            )
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception:
+            continue
+    return None
+
+
 def _dispatch_next_jobs() -> None:
     """Dispatch queued jobs to idle workers."""
     workers = _load_workers()
@@ -233,6 +253,7 @@ def _dispatch_next_jobs() -> None:
                 "feature_translation": settings.get("feature_translation", True),
                 "feature_analysis": settings.get("feature_analysis", True),
                 "demucs_model": settings.get("demucs_model", "htdemucs_ft"),
+                "transcription_engine": settings.get("transcription_engine", "whisper"),
                 "max_subtitle_languages": settings.get("max_subtitle_languages", 3),
             },
         }
@@ -375,14 +396,26 @@ def _on_job_completed(job_id: str, data: dict) -> None:
     _dispatch_next_jobs()
 
 
+MAX_RETRIES = 3
+
 def _on_job_failed(job_id: str, error: str) -> None:
-    """Called when a worker reports job failure."""
+    """Called when a worker reports job failure. Auto-retries up to MAX_RETRIES."""
     with _lock:
         for item in _queue:
             if item.get("id") == job_id:
-                item["status"] = "failed"
-                item["error"] = error
+                retries = item.get("retries", 0) + 1
+                item["retries"] = retries
                 item.pop("worker_id", None)
+                if retries < MAX_RETRIES:
+                    item["status"] = "queued"
+                    item["last_error"] = error
+                    logger.info("Job %s failed (attempt %d/%d), re-queuing: %s",
+                                job_id, retries, MAX_RETRIES, error[:100])
+                else:
+                    item["status"] = "failed"
+                    item["error"] = error
+                    logger.warning("Job %s failed after %d attempts: %s",
+                                   job_id, retries, error[:100])
                 break
         _active_jobs.pop(job_id, None)
     _save_queue()
@@ -406,14 +439,28 @@ def _worker_health_loop() -> None:
                     resp = httpx.get(f"{w['url']}/worker/status", headers=headers, timeout=10)
                     if resp.status_code == 200:
                         status_data = resp.json()
+                        worker_current_job = status_data.get("current_job")
+                        worker_job_id = worker_current_job.get("job_id") if worker_current_job else None
                         _worker_states[wid] = {
                             "status": status_data.get("status", "idle"),
                             "name": status_data.get("name", w.get("name", "")),
                             "device": status_data.get("device", "unknown"),
-                            "current_job": status_data.get("current_job"),
+                            "current_job": worker_current_job,
                             "last_seen": _now_iso(),
                             "online": True,
                         }
+                        # If worker is idle or working on a different job,
+                        # re-queue any items stuck as "processing" for this worker
+                        with _lock:
+                            for item in _queue:
+                                if (item.get("status") == "processing"
+                                        and item.get("worker_id") == wid
+                                        and item.get("id") != worker_job_id):
+                                    logger.info("Worker %s not processing job %s — re-queuing",
+                                                w.get("name"), item.get("id"))
+                                    item["status"] = "queued"
+                                    item.pop("worker_id", None)
+                                    _active_jobs.pop(item.get("id"), None)
                     else:
                         _worker_states[wid] = {
                             **_worker_states.get(wid, {}),
@@ -429,26 +476,51 @@ def _worker_health_loop() -> None:
                         "last_error": str(e),
                     }
 
-            # Re-queue jobs from workers that have been offline > 5 min
+            # Re-queue stuck processing jobs
             now = datetime.now(timezone.utc)
+            changed = False
             with _lock:
                 for item in _queue:
                     if item.get("status") != "processing":
                         continue
                     wid = item.get("worker_id")
+
+                    # No worker assigned — shouldn't happen but recover
                     if not wid:
+                        item["status"] = "queued"
+                        changed = True
                         continue
+
                     state = _worker_states.get(wid, {})
-                    if state.get("online"):
+
+                    # Worker offline > 5 min — re-queue
+                    if not state.get("online"):
+                        last_seen = state.get("last_seen")
+                        if last_seen:
+                            ls = datetime.fromisoformat(last_seen)
+                            if (now - ls).total_seconds() > 300:
+                                logger.warning("Worker %s offline > 5min, re-queuing job %s",
+                                               wid, item.get("id"))
+                                item["status"] = "queued"
+                                item.pop("worker_id", None)
+                                changed = True
                         continue
-                    last_seen = state.get("last_seen")
-                    if last_seen:
-                        ls = datetime.fromisoformat(last_seen)
-                        if (now - ls).total_seconds() > 300:
-                            logger.warning("Worker %s offline > 5min, re-queuing job %s",
-                                           wid, item.get("id"))
-                            item["status"] = "queued"
-                            item.pop("worker_id", None)
+
+                    # Worker online but job dispatched > 30 min ago — stale
+                    dispatched = item.get("dispatched_at")
+                    if dispatched:
+                        dt = datetime.fromisoformat(dispatched)
+                        if (now - dt).total_seconds() > 1800:
+                            # Check if worker still reports this job
+                            worker_job = state.get("current_job")
+                            if not worker_job or worker_job.get("job_id") != item.get("id"):
+                                logger.warning("Job %s stale (dispatched >30min, worker not processing), re-queuing",
+                                               item.get("id"))
+                                item["status"] = "queued"
+                                item.pop("worker_id", None)
+                                changed = True
+
+            if changed:
                 _save_queue()
 
             # Try dispatching if we have queued items and idle workers
@@ -698,159 +770,23 @@ def admin_toggle_worker(worker_id: str, admin: User = Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Startup recovery
+# Startup
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
-def _run_migrations() -> None:
-    """Add missing columns incrementally."""
-    from sqlalchemy import inspect, text
-    from database import engine
-    insp = inspect(engine)
-
-    # --- Invitation table: token, expires_at, accepted_by_id ---
-    inv_cols = {c["name"] for c in insp.get_columns("invitations")}
-    needs_invite_backfill = "token" not in inv_cols
-    if needs_invite_backfill:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE invitations ADD COLUMN token VARCHAR(64)"))
-            conn.execute(text("ALTER TABLE invitations ADD COLUMN expires_at TIMESTAMPTZ"))
-            conn.execute(text("ALTER TABLE invitations ADD COLUMN accepted_by_id UUID REFERENCES users(id)"))
-        # Backfill in a separate transaction (no lock conflict)
-        import secrets as _sec
-        from datetime import timedelta
-        db = get_session()
-        from models import Invitation as InvModel
-        for inv in db.query(InvModel).all():
-            inv.token = _sec.token_urlsafe(32)
-            inv.expires_at = inv.created_at + timedelta(days=7)
-        db.commit()
-        db.close()
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE invitations ALTER COLUMN token SET NOT NULL"))
-            conn.execute(text("ALTER TABLE invitations ALTER COLUMN expires_at SET NOT NULL"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_invitations_token ON invitations (token)"))
-
-    # --- User table: invited_by_id ---
-    user_cols = {c["name"] for c in insp.get_columns("users")}
-    if "invited_by_id" not in user_cols:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN invited_by_id UUID REFERENCES users(id)"))
-
-    # --- UserPermissions table ---
-    perm_cols = {c["name"] for c in insp.get_columns("user_permissions")}
-    with engine.begin() as conn:
-        if "max_invitations" not in perm_cols:
-            conn.execute(text("ALTER TABLE user_permissions ADD COLUMN max_invitations INTEGER NOT NULL DEFAULT 5"))
-        if "can_request_songs" not in perm_cols:
-            conn.execute(text("ALTER TABLE user_permissions ADD COLUMN can_request_songs BOOLEAN NOT NULL DEFAULT TRUE"))
-
-    # --- LibraryItem: year column ---
-    if "job_metadata" in set(insp.get_table_names()):
-        jm_cols = {c["name"] for c in insp.get_columns("job_metadata")}
-        if "year" not in jm_cols:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE job_metadata ADD COLUMN year VARCHAR(10)"))
-            # Backfill year from existing analysis_song_info, e.g. "Alone by Heart (1987)"
-            import re as _re
-            _db = get_session()
-            for m in _db.query(LibraryItem).filter(LibraryItem.analysis_song_info.isnot(None)).all():
-                match = _re.search(r"\((\d{4})\)", m.analysis_song_info or "")
-                if match:
-                    m.year = match.group(1)
-            _db.commit()
-            _db.close()
-
-    # --- LibraryItem: subtitles column ---
-    if "job_metadata" in set(insp.get_table_names()):
-        jm_cols2 = {c["name"] for c in insp.get_columns("job_metadata")}
-        if "subtitles" not in jm_cols2:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE job_metadata ADD COLUMN subtitles TEXT"))
-            # Backfill from local SRT files or R2
-            _db = get_session()
-            for m in _db.query(LibraryItem).filter(LibraryItem.status == "done").all():
-                srt_data = {}
-                job_dir = JOBS_DIR / m.job_id
-                if job_dir.exists():
-                    for srt in job_dir.glob("subtitles_*.srt"):
-                        lang = srt.stem.replace("subtitles_", "")
-                        srt_data[lang] = srt.read_text()
-                elif storage.is_r2():
-                    # Try to list SRT files from R2
-                    try:
-                        keys = storage.list_keys(f"jobs/{m.job_id}/subtitles_")
-                        for key in keys:
-                            fname = key.split("/")[-1]
-                            lang = fname.replace("subtitles_", "").replace(".srt", "")
-                            content = storage.read_text(key)
-                            if content:
-                                srt_data[lang] = content
-                    except Exception:
-                        pass
-                if srt_data:
-                    m.subtitles = json.dumps(srt_data)
-            _db.commit()
-            _db.close()
-
-    # --- Wishlist tables ---
-    tables = set(insp.get_table_names())
-    if "wishlist_items" not in tables:
-        with engine.begin() as conn:
-            conn.execute(text("""
-                CREATE TABLE wishlist_items (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    url VARCHAR(512),
-                    title VARCHAR(512) NOT NULL,
-                    artist VARCHAR(255),
-                    thumbnail VARCHAR(512),
-                    note TEXT,
-                    status VARCHAR(20) NOT NULL DEFAULT 'open',
-                    fulfilled_by_job_id VARCHAR(255),
-                    created_at TIMESTAMPTZ DEFAULT now()
-                )
-            """))
-    if "wishlist_votes" not in tables:
-        with engine.begin() as conn:
-            conn.execute(text("""
-                CREATE TABLE wishlist_votes (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    wishlist_item_id UUID NOT NULL REFERENCES wishlist_items(id) ON DELETE CASCADE,
-                    created_at TIMESTAMPTZ DEFAULT now(),
-                    CONSTRAINT uq_user_wishlist_vote UNIQUE (user_id, wishlist_item_id)
-                )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_wishlist_votes_item ON wishlist_votes (wishlist_item_id)"))
-
-    # --- Activity log table ---
-    if "activity_log" not in tables:
-        with engine.begin() as conn:
-            conn.execute(text("""
-                CREATE TABLE activity_log (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                    user_name VARCHAR(255) NOT NULL DEFAULT 'Anonymous',
-                    event_type VARCHAR(30) NOT NULL,
-                    detail TEXT,
-                    created_at TIMESTAMPTZ DEFAULT now()
-                )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_activity_log_event ON activity_log (event_type)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_activity_log_created ON activity_log (created_at DESC)"))
-
-
-@app.on_event("startup")
-def _recover_jobs() -> None:
+def _startup() -> None:
     """On startup: load queue, reset stale jobs, start worker health monitor."""
     _load_queue()
 
-    # Reset processing items back to queued (server restarted, workers may have changed)
+    # Reset stale items on startup (server restarted, workers may have changed)
     changed = False
     for item in _queue:
-        if item.get("status") in ("processing",):
+        if item.get("status") == "processing":
             item["status"] = "queued"
             item.pop("worker_id", None)
+            changed = True
+        elif item.get("status") == "failed" and item.get("retries", 0) < MAX_RETRIES:
+            item["status"] = "queued"
+            item.pop("error", None)
             changed = True
     if changed:
         _save_queue()
@@ -1117,15 +1053,6 @@ def create_job(req: JobRequest, user: User | None = Depends(get_optional_user)):
     if mode not in allowed:
         raise HTTPException(403, f"Production mode '{mode}' is not enabled")
 
-    meta = {}
-    try:
-        meta = fetch_metadata(req.url)
-    except Exception:
-        pass
-    title = meta.get("title", "Unknown")
-
-    slug = _slugify(title)
-    job_id = f"{slug}-{secrets.token_hex(2)}"
     max_langs = settings.get("max_subtitle_languages", 3)
     languages = req.languages[:max_langs] if req.languages else (
         [req.language] if req.language else []
@@ -1133,12 +1060,18 @@ def create_job(req: JobRequest, user: User | None = Depends(get_optional_user)):
     if mode not in ("subtitled", "both"):
         languages = []
 
+    # Try to get metadata from a worker (non-blocking, best-effort)
+    meta = _fetch_metadata_via_worker(req.url) or {}
+    title = meta.get("title", "")
+    slug = _slugify(title) if title else "job"
+    job_id = f"{slug}-{secrets.token_hex(4)}"
+
     item = {
         "id": job_id,
         "url": req.url,
         "mode": mode,
         "languages": languages,
-        "title": title,
+        "title": title or req.url,
         "thumbnail": meta.get("thumbnail"),
         "channel": meta.get("channel"),
         "upload_date": meta.get("upload_date"),
@@ -1217,23 +1150,18 @@ def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_use
         if mode in ("subtitled", "both") and user_today_subtitled >= p.max_subtitled_per_day:
             raise HTTPException(429, f"Daily subtitled limit reached ({p.max_subtitled_per_day})")
 
-    # Fetch metadata
-    meta = {}
-    try:
-        meta = fetch_metadata(req.url)
-    except Exception:
-        pass
-    title = meta.get("title", "Unknown")
-
-    slug = _slugify(title)
-    item_id = f"{slug}-{secrets.token_hex(2)}"
+    # Fetch metadata via worker (best-effort)
+    meta = _fetch_metadata_via_worker(req.url) or {}
+    title = meta.get("title", "")
+    slug = _slugify(title) if title else "job"
+    item_id = f"{slug}-{secrets.token_hex(4)}"
 
     item = {
         "id": item_id,
         "url": req.url,
         "mode": mode,
         "languages": languages,
-        "title": title,
+        "title": title or req.url,
         "thumbnail": meta.get("thumbnail"),
         "channel": meta.get("channel"),
         "upload_date": meta.get("upload_date"),
@@ -1598,6 +1526,7 @@ _DEFAULT_SETTINGS = {
     "default_can_request_songs": True,
     "max_disk_space_mb": 0,
     "demucs_model": "htdemucs_ft",
+    "transcription_engine": "whisper",
     "max_subtitle_languages": 3,
 }
 
@@ -1798,7 +1727,7 @@ class UpdateJobRequest(BaseModel):
 
 
 @app.patch("/api/jobs/{job_id}")
-def update_job_metadata(job_id: str, req: UpdateJobRequest,
+def update_library_item(job_id: str, req: UpdateJobRequest,
                         user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
     """Update editable job metadata (title, artist)."""
@@ -2334,13 +2263,10 @@ def create_wishlist_item(req: WishlistCreateRequest,
     thumbnail = None
 
     if url:
-        try:
-            meta = fetch_metadata(url)
-            title = title or meta.get("title", "Unknown")
-            artist = artist or meta.get("channel")
-            thumbnail = meta.get("thumbnail")
-        except Exception:
-            pass
+        meta = _fetch_metadata_via_worker(url) or {}
+        title = title or meta.get("title", "")
+        artist = artist or meta.get("channel")
+        thumbnail = meta.get("thumbnail")
 
     if not title:
         raise HTTPException(400, "Title is required")
@@ -2385,13 +2311,12 @@ def toggle_wishlist_vote(item_id: str, user: User = Depends(get_current_user),
 
 @app.get("/api/wishlist/preview")
 def preview_wishlist_url(url: str, user: User = Depends(get_current_user)):
-    """Fetch YouTube metadata for preview in request form."""
-    try:
-        meta = fetch_metadata(url)
-        return {"title": meta.get("title"), "channel": meta.get("channel"),
-                "thumbnail": meta.get("thumbnail")}
-    except Exception:
-        raise HTTPException(400, "Could not fetch metadata")
+    """Fetch YouTube metadata for preview in request form (via worker)."""
+    meta = _fetch_metadata_via_worker(url)
+    if not meta:
+        raise HTTPException(400, "Could not fetch metadata — no workers available")
+    return {"title": meta.get("title"), "channel": meta.get("channel"),
+            "thumbnail": meta.get("thumbnail")}
 
 
 # --- Admin Wishlist ---

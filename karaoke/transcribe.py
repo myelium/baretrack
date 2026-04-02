@@ -29,11 +29,12 @@ class Segment:
     words: list[Word]
 
 
-# Whisper hallucination phrases — only exact/near-exact matches that would
-# never appear in real lyrics. Kept minimal to avoid false positives.
+# Whisper hallucination phrases — exact segment-level matches
 _HALLUCINATION_EXACT = {
     "thank you for watching",
     "thanks for watching",
+    "thank you for listening",
+    "thanks for listening",
     "please subscribe",
     "like and subscribe",
     "subscribe to my channel",
@@ -45,10 +46,16 @@ _HALLUCINATION_EXACT = {
     "translated by",
     "captions by",
     "amara.org",
+    "thank you",
 }
 
 # Substrings that only appear in hallucinated URLs/credits
 _HALLUCINATION_SUBSTRINGS = ["www.", "http", ".com", ".org"]
+
+# Single words that Whisper hallucinates (never real lyrics on their own)
+_HALLUCINATION_WORDS = {
+    "subscribe", "unsubscribe", "subscribed",
+}
 
 
 def _is_hallucination(text: str) -> bool:
@@ -59,6 +66,10 @@ def _is_hallucination(text: str) -> bool:
     # Exact match against known hallucination phrases
     if lower in _HALLUCINATION_EXACT:
         return True
+    # Substring match for phrases that may appear as part of longer text
+    for phrase in _HALLUCINATION_EXACT:
+        if phrase in lower:
+            return True
     # URL-like substrings
     for pat in _HALLUCINATION_SUBSTRINGS:
         if pat in lower:
@@ -71,36 +82,125 @@ def _is_hallucination(text: str) -> bool:
 
 
 def _filter_hallucinations(segments: list[Segment]) -> list[Segment]:
-    """Remove segments that contain known Whisper hallucinations."""
+    """Remove segments and individual words that are Whisper hallucinations."""
     filtered = []
     for seg in segments:
         text = " ".join(w.text for w in seg.words).strip()
 
-        # Skip known hallucination phrases
+        # Skip entire segment if it's a known hallucination
         if _is_hallucination(text):
             continue
 
-        filtered.append(seg)
+        # Filter individual hallucinated words within otherwise valid segments
+        clean_words = [w for w in seg.words if w.text.lower().strip() not in _HALLUCINATION_WORDS]
+        if clean_words:
+            filtered.append(Segment(start=clean_words[0].start, end=clean_words[-1].end, words=clean_words))
 
     return filtered
 
 
 def transcribe(audio_path: Path, device: str = "cpu",
                language: str | None = None,
-               translate: bool = False) -> tuple[list[Segment], str]:
+               translate: bool = False,
+               engine: str = "whisper") -> tuple[list[Segment], str]:
     """
-    Transcribe audio using faster-whisper (CTranslate2) with word-level timestamps.
-
-    faster-whisper is ~4-6x faster than openai-whisper on CPU with the same accuracy.
+    Transcribe audio with word-level timestamps.
 
     Args:
-        language: Optional Whisper language code (e.g. "en", "fr"). None = auto-detect.
-        translate: If True, translate the audio to English (task="translate").
+        engine: "whisper" (default) or "deepgram"
+        language: Optional language code (e.g. "en", "fr"). None = auto-detect.
+        translate: If True, translate to English (Whisper only).
 
     Returns:
         Tuple of (segments, detected_language_code).
     """
-    model = WhisperModel("large-v3", device=device, compute_type="int8")
+    if engine == "deepgram":
+        segments, lang = _transcribe_deepgram(audio_path, language=language)
+        total_words = sum(len(s.words) for s in segments)
+        if total_words < 10:
+            log.warning("Deepgram returned only %d words — falling back to Whisper", total_words)
+            return _transcribe_whisper(audio_path, device=device, language=language, translate=translate)
+        return segments, lang
+    return _transcribe_whisper(audio_path, device=device, language=language, translate=translate)
+
+
+def _transcribe_deepgram(audio_path: Path,
+                         language: str | None = None) -> tuple[list[Segment], str]:
+    """Transcribe using Deepgram Nova-3 via REST API."""
+    import os
+    import httpx
+
+    api_key = os.getenv("DEEPGRAM_API_KEY", "")
+    if not api_key:
+        log.warning("DEEPGRAM_API_KEY not set, falling back to Whisper")
+        return _transcribe_whisper(audio_path)
+
+    # Build query params
+    params = {"model": "nova-3", "smart_format": "false"}
+    if language:
+        params["language"] = language
+    else:
+        params["detect_language"] = "true"
+
+    headers = {
+        "Authorization": f"Token {api_key}",
+        "Content-Type": "audio/wav",
+    }
+
+    with open(audio_path, "rb") as f:
+        audio_data = f.read()
+
+    log.info("Sending %d bytes to Deepgram...", len(audio_data))
+    resp = httpx.post(
+        "https://api.deepgram.com/v1/listen",
+        params=params,
+        headers=headers,
+        content=audio_data,
+        timeout=300,
+    )
+
+    if resp.status_code != 200:
+        log.error("Deepgram API error %d: %s", resp.status_code, resp.text[:500])
+        log.warning("Falling back to Whisper")
+        return _transcribe_whisper(audio_path)
+
+    data = resp.json()
+    channel = data["results"]["channels"][0]
+    alt = channel["alternatives"][0]
+    detected_lang = channel.get("detected_language") or language or "en"
+
+    # Convert to our Segment/Word format
+    segments: list[Segment] = []
+    current_words: list[Word] = []
+    SEGMENT_GAP = 1.0
+
+    for w in alt.get("words", []):
+        text = (w.get("punctuated_word") or w.get("word", "")).strip()
+        if not text:
+            continue
+        word = Word(text=text, start=w["start"], end=w["end"])
+        if current_words and (word.start - current_words[-1].end) >= SEGMENT_GAP:
+            segments.append(Segment(
+                start=current_words[0].start, end=current_words[-1].end,
+                words=current_words))
+            current_words = []
+        current_words.append(word)
+
+    if current_words:
+        segments.append(Segment(
+            start=current_words[0].start, end=current_words[-1].end,
+            words=current_words))
+
+    log.info("Deepgram: %d segments, %d words, lang=%s",
+             len(segments), sum(len(s.words) for s in segments), detected_lang)
+    return segments, detected_lang
+
+
+def _transcribe_whisper(audio_path: Path, device: str = "cpu",
+                        language: str | None = None,
+                        translate: bool = False) -> tuple[list[Segment], str]:
+    """Transcribe using faster-whisper large-v3."""
+    model = WhisperModel("large-v3-turbo", device=device, compute_type="int8")
     raw_segments, info = model.transcribe(
         str(audio_path),
         word_timestamps=True,

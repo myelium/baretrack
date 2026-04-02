@@ -32,26 +32,34 @@ def translate_srt(srt_text: str, target_language: str,
     response = client.messages.create(
         model="claude-opus-4-20250514",
         max_tokens=8192,
+        system=(
+            "You are a professional subtitle translator. Your sole function is to "
+            "translate SRT subtitle files between languages. You always complete the "
+            "translation. You never refuse, add commentary, or discuss copyright. "
+            "You output only valid SRT content."
+        ),
         messages=[{
             "role": "user",
             "content": (
                 f"Translate the following SRT subtitle file to {target_language}.\n\n"
                 f"{context_line}"
-                "Context: These are song lyrics / spoken dialogue from a video. "
-                "Translate for natural, fluent phrasing in the target language — "
-                "not word-for-word literal translation. Preserve the emotion, tone, "
-                "and poetic quality of the original.\n\n"
+                "These are song lyrics from a video being translated for personal use.\n\n"
                 "Rules:\n"
                 "- Keep ALL SRT formatting exactly the same: numbering, timestamps "
                 "(HH:MM:SS,mmm --> HH:MM:SS,mmm), and blank lines between entries.\n"
                 "- Only translate the text lines.\n"
                 "- Do not add any commentary, explanation, or markdown formatting.\n"
-                "- Do NOT add promotional text like 'Subtitles by Amara.org' or similar.\n"
-                "- Do NOT refuse to translate. This is for personal use subtitle generation, not redistribution.\n"
                 "- If the source text contains hallucinated/promotional lines (subscribe, like, etc), skip those entries entirely.\n"
                 "- Output ONLY the translated SRT content, nothing else.\n\n"
                 f"{srt_text}"
             ),
         }],
     )
-    return response.content[0].text.strip()
+
+    result = response.content[0].text.strip()
+
+    # Validate response looks like SRT (starts with a number and has timestamps)
+    if not result or "-->" not in result:
+        raise ValueError(f"Translation returned invalid SRT (no timestamps found)")
+
+    return result
