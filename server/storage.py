@@ -1,64 +1,10 @@
-"""Storage abstraction for local filesystem and Cloudflare R2."""
+"""Cloudflare R2 storage backend."""
 
 import logging
 import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").lower()
-_SERVER_DIR = Path(__file__).resolve().parent
-JOBS_DIR = _SERVER_DIR / "output" / "jobs"
-
-
-class LocalStorage:
-    """Serves files from the local filesystem."""
-
-    def upload(self, key: str, local_path: Path) -> str:
-        """No-op for local storage — files are already on disk."""
-        return f"/api/jobs/{'/'.join(key.split('/')[1:])}"
-
-    def get_url(self, key: str) -> str | None:
-        """Return local API path if file exists."""
-        path = JOBS_DIR.parent / key  # key is like "jobs/{id}/karaoke.mp4"
-        if path.exists():
-            parts = key.split("/")  # ["jobs", job_id, filename]
-            if len(parts) >= 3:
-                return f"/api/jobs/{parts[1]}/download/{parts[2]}"
-        return None
-
-    def delete(self, key: str) -> None:
-        path = JOBS_DIR.parent / key
-        if path.exists():
-            path.unlink(missing_ok=True)
-
-    def delete_prefix(self, prefix: str) -> None:
-        """Delete all files under a prefix (like a directory)."""
-        import shutil
-        path = JOBS_DIR.parent / prefix
-        if path.exists() and path.is_dir():
-            shutil.rmtree(path)
-
-    def exists(self, key: str) -> bool:
-        return (JOBS_DIR.parent / key).exists()
-
-    def list_keys(self, prefix: str) -> list[str]:
-        path = JOBS_DIR.parent / prefix
-        if not path.exists() or not path.is_dir():
-            return []
-        return [f"{prefix}/{f.name}" for f in path.iterdir() if f.is_file()]
-
-    def read_text(self, key: str) -> str | None:
-        path = JOBS_DIR.parent / key
-        if path.exists():
-            return path.read_text()
-        return None
-
-    def generate_presigned_upload(self, key: str, expires_in: int = 3600) -> str | None:
-        return None
-
-    def is_r2(self) -> bool:
-        return False
 
 
 class R2Storage:
@@ -151,16 +97,6 @@ class R2Storage:
             logger.error("Failed to generate presigned URL for %s: %s", key, e)
             return None
 
-    def is_r2(self) -> bool:
-        return True
-
-
-def get_storage() -> LocalStorage | R2Storage:
-    """Return the configured storage backend."""
-    if STORAGE_BACKEND == "r2":
-        return R2Storage()
-    return LocalStorage()
-
 
 # Module-level singleton
-storage = get_storage()
+storage = R2Storage()

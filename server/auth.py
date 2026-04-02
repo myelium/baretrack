@@ -108,16 +108,19 @@ def create_user_with_permissions(db: Session, email: str, name: str,
     db.add(user)
     db.flush()
 
-    # Apply admin-configured defaults if settings file exists
+    # Apply admin-configured defaults from DB
     import json
-    from pathlib import Path
-    _settings_path = Path(__file__).resolve().parent / "output" / "jobs" / "settings.json"
+    from database import get_session as _get_session
+    from models import AppConfig
     settings = {}
-    if _settings_path.exists():
-        try:
-            settings = json.loads(_settings_path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
+    try:
+        _s = _get_session()
+        row = _s.query(AppConfig).filter(AppConfig.key == "settings").first()
+        if row:
+            settings = json.loads(row.value)
+        _s.close()
+    except Exception:
+        pass
     perms = UserPermissions(
         user_id=user.id,
         max_karaoke_per_day=settings.get("default_max_karaoke_per_day", 5),

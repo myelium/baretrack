@@ -32,10 +32,8 @@ from storage import storage
 
 import logging
 import os
-import shutil
 
 _SERVER_DIR = Path(__file__).resolve().parent
-JOBS_DIR = _SERVER_DIR / "output" / "jobs"
 
 
 def _log_activity(db, user, event_type: str, detail: dict | None = None) -> None:
@@ -649,8 +647,6 @@ async def worker_upload_urls(request: Request):
     if not job_id or not filenames:
         raise HTTPException(400, "job_id and filenames required")
 
-    if not storage.is_r2():
-        raise HTTPException(501, "R2 storage not configured")
 
     urls = {}
     for fname in filenames:
@@ -1458,10 +1454,7 @@ def check_url_in_library(url: str, mode: str = "karaoke",
 
 
 def _serve_file(job_id: str, filename: str, media_type: str, label: str = "File"):
-    """Serve a job file from local disk or redirect to R2."""
-    local = JOBS_DIR / job_id / filename
-    if local.exists():
-        return FileResponse(local, media_type=media_type)
+    """Serve a job file from R2."""
     url = storage.get_url(f"jobs/{job_id}/{filename}")
     if url:
         return RedirectResponse(url, status_code=302)
@@ -1500,14 +1493,9 @@ def record_view(job_id: str, user: User | None = Depends(get_optional_user),
 
 @app.get("/api/jobs/{job_id}/lyrics")
 def get_lyrics(job_id: str, db: Session = Depends(get_db)):
-    # Prefer DB (lyrics travel with the library item)
     meta = db.query(LibraryItem).filter(LibraryItem.job_id == job_id).first()
     if meta and meta.lyrics:
         return json.loads(meta.lyrics)
-    # Fallback to local file (during active job processing)
-    path = JOBS_DIR / job_id / "lyrics.json"
-    if path.exists():
-        return json.loads(path.read_text())
     raise HTTPException(404, "Lyrics not found")
 
 
@@ -1629,14 +1617,8 @@ def get_analysis(job_id: str, db: Session = Depends(get_db)):
     if meta and meta.analysis_text and len(meta.analysis_text) > 10:
         return {"song_info": meta.analysis_song_info or "", "analysis": meta.analysis_text}
 
-    # Need lyrics to analyze — prefer DB, fallback to file
-    lyrics_raw = None
-    if meta and meta.lyrics:
-        lyrics_raw = meta.lyrics
-    else:
-        lyrics_path = JOBS_DIR / job_id / "lyrics.json"
-        if lyrics_path.exists():
-            lyrics_raw = lyrics_path.read_text()
+    # Need lyrics to analyze
+    lyrics_raw = meta.lyrics if meta else None
     if not lyrics_raw:
         raise HTTPException(404, "Lyrics not found")
 
@@ -1680,16 +1662,11 @@ def get_subtitles_lang(job_id: str, lang_code: str, db: Session = Depends(get_db
     """Serve per-language SRT file."""
     if not re.match(r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$", lang_code):
         raise HTTPException(400, "Invalid language code")
-    # Try DB first
     meta = db.query(LibraryItem).filter(LibraryItem.job_id == job_id).first()
     if meta and meta.subtitles:
         srt_data = json.loads(meta.subtitles)
         if lang_code in srt_data:
             return Response(content=srt_data[lang_code], media_type="text/plain")
-    # Fallback to local file
-    path = JOBS_DIR / job_id / f"subtitles_{lang_code}.srt"
-    if path.exists():
-        return FileResponse(path, media_type="text/plain")
     # Fallback to R2
     r2_key = f"jobs/{job_id}/subtitles_{lang_code}.srt"
     url = storage.get_url(r2_key)
@@ -1701,18 +1678,12 @@ def get_subtitles_lang(job_id: str, lang_code: str, db: Session = Depends(get_db
 @app.get("/api/jobs/{job_id}/subtitles")
 def get_subtitles(job_id: str, db: Session = Depends(get_db)):
     """Serve first available SRT file."""
-    # Try DB first
     meta = db.query(LibraryItem).filter(LibraryItem.job_id == job_id).first()
     if meta and meta.subtitles:
         srt_data = json.loads(meta.subtitles)
         if srt_data:
             lang = sorted(srt_data.keys())[0]
             return Response(content=srt_data[lang], media_type="text/plain")
-    # Fallback to local file
-    job_dir = JOBS_DIR / job_id
-    if job_dir.exists():
-        for f in sorted(job_dir.glob("subtitles_*.srt")):
-            return FileResponse(f, media_type="text/plain")
     # Fallback to R2
     if meta:
         langs = json.loads(meta.languages or "[]")
@@ -1766,12 +1737,9 @@ def delete_job(job_id: str, user: User = Depends(get_current_user)):
     if not is_admin(user) and user.permissions and not user.permissions.can_delete_library:
         raise HTTPException(403, "You don't have permission to delete songs")
 
-    # Check job exists locally or in DB
-    job_dir = JOBS_DIR / job_id
-    has_local = job_dir.exists() and job_dir.is_dir()
     _db = get_session()
     has_db = _db.query(LibraryItem).filter(LibraryItem.job_id == job_id).first() is not None
-    if not has_local and not has_db:
+    if not has_db:
         _db.close()
         raise HTTPException(404, "Job not found")
 
@@ -1781,13 +1749,8 @@ def delete_job(job_id: str, user: User = Depends(get_current_user)):
             _db.close()
             raise HTTPException(409, "Cannot delete a running job")
 
-    # Delete local files
-    if has_local:
-        shutil.rmtree(job_dir)
-
     # Delete from R2
-    if storage.is_r2():
-        storage.delete_prefix(f"jobs/{job_id}/")
+    storage.delete_prefix(f"jobs/{job_id}/")
 
     # Clean up DB metadata (votes, comments, job metadata)
     try:
@@ -1833,15 +1796,9 @@ def download_file(job_id: str, filename: str,
 
 @app.get("/api/jobs/{job_id}/artifact/{filepath:path}")
 def download_artifact(job_id: str, filepath: str):
-    """Download an intermediate artifact from a job's output directory."""
+    """Download an artifact from R2."""
     if ".." in filepath:
         raise HTTPException(400, "Invalid path")
-    path = JOBS_DIR / job_id / filepath
-    if path.exists() and path.is_file():
-        return FileResponse(
-            path, filename=path.name,
-            headers={"Content-Disposition": f"attachment; filename={path.name}"},
-        )
     url = storage.get_url(f"jobs/{job_id}/{filepath}")
     if url:
         return RedirectResponse(url, status_code=302)
@@ -1869,21 +1826,13 @@ async def submit_feedback(
         content = await screenshot.read()
         if len(content) > 5 * 1024 * 1024:
             raise HTTPException(400, "Screenshot must be under 5MB")
-        if storage.is_r2():
-            # Write temp file, upload to R2, store R2 key as path
-            import tempfile
-            with tempfile.NamedTemporaryFile(delete=False, suffix=filename) as tmp:
-                tmp.write(content)
-                tmp_path = Path(tmp.name)
-            storage.upload(f"feedback/{filename}", tmp_path)
-            tmp_path.unlink(missing_ok=True)
-            screenshot_path = f"r2:feedback/{filename}"
-        else:
-            feedback_dir = _SERVER_DIR / "output" / "feedback"
-            feedback_dir.mkdir(parents=True, exist_ok=True)
-            filepath = feedback_dir / filename
-            filepath.write_bytes(content)
-            screenshot_path = str(filepath)
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=filename) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        storage.upload(f"feedback/{filename}", tmp_path)
+        tmp_path.unlink(missing_ok=True)
+        screenshot_path = f"r2:feedback/{filename}"
 
     fb = Feedback(
         user_id=user.id,
