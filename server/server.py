@@ -352,7 +352,7 @@ def _on_job_completed(job_id: str, data: dict) -> None:
             lyrics_text = " ".join(w["text"] for w in words)
             prompts = _load_prompts()
             custom_prompt = prompts.get("analysis_prompt") or None
-            from karaoke.analyze_lyrics import analyze_lyrics
+            from analyze_lyrics import analyze_lyrics
             title = (queue_item or {}).get("title")
             artist = data.get("artist") or (queue_item or {}).get("channel")
             result = analyze_lyrics(lyrics_text, title=title, artist=artist,
@@ -1556,7 +1556,7 @@ def _save_prompts(prompts: dict) -> None:
 def get_prompts(user: User = Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
-    from karaoke.analyze_lyrics import DEFAULT_ANALYSIS_PROMPT
+    from analyze_lyrics import DEFAULT_ANALYSIS_PROMPT
     prompts = _load_prompts()
     return {
         "analysis_prompt": prompts.get("analysis_prompt", ""),
@@ -1647,7 +1647,7 @@ def get_analysis(job_id: str, db: Session = Depends(get_db)):
     prompts = _load_prompts()
     custom_prompt = prompts.get("analysis_prompt") or None
 
-    from karaoke.analyze_lyrics import analyze_lyrics
+    from analyze_lyrics import analyze_lyrics
     result = analyze_lyrics(lyrics_text, title=title, artist=artist,
                             custom_prompt=custom_prompt)
 
