@@ -2324,8 +2324,8 @@
     <!-- Queue Input -->
     <div class="queue-input">
       <div class="input-row">
-        <input type="text" id="url-input" placeholder="YouTube URL..." onkeydown="if(event.key==='Enter')addToQueue()" />
-        <button class="coin-btn" id="btn-submit" onclick="addToQueue()" title="Add to Jukebox">
+        <input type="text" id="url-input" placeholder="YouTube URL..." onkeydown="if(event.key==='Enter')openQueueForm()" />
+        <button class="coin-btn" id="btn-submit" onclick="openQueueForm()" title="Add to Jukebox">
           <span class="coin-trails">
             <span class="coin-trail"></span>
             <span class="coin-trail"></span>
@@ -2335,50 +2335,6 @@
           <span class="coin-slot-line"></span>
         </button>
       </div>
-      <div class="mode-row">
-        <label><input type="checkbox" id="mode-karaoke" checked onchange="onModeChange()"> Karaoke</label>
-        <label><input type="checkbox" id="mode-subtitled" onchange="onModeChange()"> Subtitles</label>
-      </div>
-      <div class="lang-picker" id="lang-picker" style="display:none;">
-          <span id="lang-chips"></span>
-          <select id="lang-add-select" onchange="addLanguage(this.value); this.value='';" title="Add subtitle language">
-          <option value="">+ Add language</option>
-          <option value="af">Afrikaans</option><option value="sq">Albanian</option><option value="am">Amharic</option>
-          <option value="ar">Arabic</option><option value="hy">Armenian</option><option value="as">Assamese</option>
-          <option value="az">Azerbaijani</option><option value="ba">Bashkir</option><option value="eu">Basque</option>
-          <option value="be">Belarusian</option><option value="bn">Bengali</option><option value="bs">Bosnian</option>
-          <option value="br">Breton</option><option value="bg">Bulgarian</option><option value="my">Burmese</option>
-          <option value="zh-Hans">Chinese (Simplified)</option><option value="zh-Hant">Chinese (Traditional)</option><option value="ca">Catalan</option><option value="hr">Croatian</option>
-          <option value="cs">Czech</option><option value="da">Danish</option><option value="nl">Dutch</option>
-          <option value="en">English</option><option value="et">Estonian</option><option value="fo">Faroese</option>
-          <option value="fi">Finnish</option><option value="fr">French</option><option value="gl">Galician</option>
-          <option value="ka">Georgian</option><option value="de">German</option><option value="el">Greek</option>
-          <option value="gu">Gujarati</option><option value="ht">Haitian</option><option value="ha">Hausa</option>
-          <option value="haw">Hawaiian</option><option value="he">Hebrew</option><option value="hi">Hindi</option>
-          <option value="hu">Hungarian</option><option value="is">Icelandic</option><option value="id">Indonesian</option>
-          <option value="it">Italian</option><option value="ja">Japanese</option><option value="jw">Javanese</option>
-          <option value="kn">Kannada</option><option value="kk">Kazakh</option><option value="km">Khmer</option>
-          <option value="ko">Korean</option><option value="lo">Lao</option><option value="la">Latin</option>
-          <option value="lv">Latvian</option><option value="ln">Lingala</option><option value="lt">Lithuanian</option>
-          <option value="lb">Luxembourgish</option><option value="mk">Macedonian</option><option value="mg">Malagasy</option>
-          <option value="ms">Malay</option><option value="ml">Malayalam</option><option value="mt">Maltese</option>
-          <option value="mi">Maori</option><option value="mr">Marathi</option>
-          <option value="mn">Mongolian</option><option value="ne">Nepali</option><option value="no">Norwegian</option>
-          <option value="nn">Norwegian Nynorsk</option><option value="oc">Occitan</option><option value="ps">Pashto</option>
-          <option value="fa">Persian</option><option value="pl">Polish</option><option value="pt">Portuguese</option>
-          <option value="pa">Punjabi</option><option value="ro">Romanian</option><option value="ru">Russian</option>
-          <option value="sa">Sanskrit</option><option value="sr">Serbian</option><option value="sn">Shona</option>
-          <option value="sd">Sindhi</option><option value="si">Sinhala</option><option value="sk">Slovak</option>
-          <option value="sl">Slovenian</option><option value="so">Somali</option><option value="es">Spanish</option>
-          <option value="su">Sundanese</option><option value="sw">Swahili</option><option value="sv">Swedish</option>
-          <option value="tl">Tagalog</option><option value="tg">Tajik</option><option value="ta">Tamil</option>
-          <option value="tt">Tatar</option><option value="te">Telugu</option><option value="th">Thai</option>
-          <option value="bo">Tibetan</option><option value="tr">Turkish</option><option value="tk">Turkmen</option>
-          <option value="uk">Ukrainian</option><option value="ur">Urdu</option><option value="uz">Uzbek</option>
-          <option value="vi">Vietnamese</option><option value="cy">Welsh</option><option value="yi">Yiddish</option>
-          <option value="yo">Yoruba</option>
-          </select>
-        </div>
     </div>
 
     <!-- Queue List -->
@@ -2891,31 +2847,98 @@ async function backgroundPoll() {
   } catch (e) {}
 }
 
-async function addToQueue() {
+let _queueFormLangs = [];
+
+function openQueueForm() {
   const url = document.getElementById('url-input').value.trim();
   if (!url) return;
   if (!/youtube\.com\/watch|youtu\.be\//.test(url)) {
     showAlert('Please enter a valid YouTube URL');
     return;
   }
+  _queueFormLangs = [];
 
-  const mode = getSelectedMode();
-  const languages = (mode === 'subtitled' || mode === 'both') ? [...selectedLanguages] : [];
-  if ((mode === 'subtitled' || mode === 'both') && languages.length === 0) {
-    showAlert('Please add at least one subtitle language.');
-    return;
-  }
-  if (mode === 'karaoke' && !document.getElementById('mode-karaoke').checked) {
-    showAlert('Please select at least one production mode.');
-    return;
-  }
+  const langOptions = Object.entries(LANG_NAMES_ALL).sort((a,b) => a[1].localeCompare(b[1]))
+    .map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-box" style="max-width:460px;min-height:380px;text-align:left;">
+      <h3 style="color:var(--text-bright);margin:0 0 12px;font-size:1rem;">Production Options</h3>
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">YouTube URL</label>
+      <div style="font-size:0.8rem;color:var(--text);margin-bottom:10px;word-break:break-all;">${escapeHtml(url)}</div>
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Title (optional — auto-detected from YouTube)</label>
+      <input type="text" id="queue-form-title" placeholder="Song title" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;box-sizing:border-box;" />
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Artist (optional)</label>
+      <input type="text" id="queue-form-artist" placeholder="Artist name" style="width:100%;padding:6px 8px;margin-bottom:10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;box-sizing:border-box;" />
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Type</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <label style="font-size:0.8rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="queue-form-karaoke" checked onchange="updateQueueFormMode()"> Karaoke</label>
+        <label style="font-size:0.8rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="queue-form-subtitles" onchange="updateQueueFormMode()"> Subtitles</label>
+      </div>
+      <div id="queue-form-lang-section" style="display:none;margin-bottom:8px;">
+        <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Subtitle Languages</label>
+        <div id="queue-form-lang-tags" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;"></div>
+        <select id="queue-form-lang-select" onchange="addQueueFormLang(this.value); this.value='';"
+          style="padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.78rem;font-family:inherit;">
+          <option value="">+ Add language</option>
+          ${langOptions}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="admin-btn" onclick="this.closest('.confirm-overlay').remove()">Cancel</button>
+        <button class="btn-primary" style="padding:6px 20px;" onclick="submitQueueForm('${escapeHtml(url)}')">Add to Queue</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function updateQueueFormMode() {
+  const hasSubs = document.getElementById('queue-form-subtitles').checked;
+  document.getElementById('queue-form-lang-section').style.display = hasSubs ? '' : 'none';
+}
+
+function addQueueFormLang(code) {
+  if (!code || _queueFormLangs.includes(code) || _queueFormLangs.length >= 3) return;
+  _queueFormLangs.push(code);
+  renderQueueFormLangTags();
+}
+
+function removeQueueFormLang(code) {
+  _queueFormLangs = _queueFormLangs.filter(c => c !== code);
+  renderQueueFormLangTags();
+}
+
+function renderQueueFormLangTags() {
+  const container = document.getElementById('queue-form-lang-tags');
+  if (!container) return;
+  container.innerHTML = _queueFormLangs.map(code =>
+    `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;background:var(--accent);color:#1a1612;border-radius:12px;font-size:0.72rem;font-weight:600;">
+      ${LANG_NAMES_ALL[code] || code}
+      <span onclick="removeQueueFormLang('${code}')" style="cursor:pointer;font-size:0.85rem;line-height:1;">&times;</span>
+    </span>`
+  ).join('');
+}
+
+async function submitQueueForm(url) {
+  const wantKaraoke = document.getElementById('queue-form-karaoke').checked;
+  const wantSubs = document.getElementById('queue-form-subtitles').checked;
+  if (!wantKaraoke && !wantSubs) { showAlert('Select Karaoke and/or Subtitles.'); return; }
+  if (wantSubs && _queueFormLangs.length === 0) { showAlert('Add at least one subtitle language.'); return; }
+
+  const mode = (wantKaraoke && wantSubs) ? 'both' : (wantSubs ? 'subtitled' : 'karaoke');
+  const languages = wantSubs ? _queueFormLangs : [];
+  const title = document.getElementById('queue-form-title').value.trim() || null;
 
   const btn = document.getElementById('btn-submit');
   btn.disabled = true;
   btn.classList.add('loading');
 
   try {
-    const body = { url, mode };
+    const body = { url, mode, title };
     if (languages.length > 0) body.languages = languages;
     const resp = await fetch('/api/queue', {
       method: 'POST',
@@ -2927,6 +2950,7 @@ async function addToQueue() {
     productionQueue = data.queue || [];
     renderQueue();
     document.getElementById('url-input').value = '';
+    document.querySelector('.confirm-overlay')?.remove();
     startQueuePolling();
   } catch (e) {
     showAlert('Error: ' + e.message);
@@ -3014,7 +3038,7 @@ function renderQueue() {
       const totalSteps = getStepNamesForMode(processingItem.mode).length;
       const stepNum = processingItem.step || 0;
       const stepProg = processingItem.step_progress || 0;
-      const overallPct = totalSteps > 0 ? Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100) : 0;
+      const overallPct = totalSteps > 0 ? Math.max(0, Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100)) : 0;
       const barPct = overallPct;
       const langSuffix = processingItem.languages?.length ? ' · ' + processingItem.languages.map(c => LANG_NAMES_ALL[c] || c).join(', ') : '';
       const modeLabel = processingItem.mode === 'both' ? 'Karaoke + Subtitles' + langSuffix : (processingItem.mode === 'subtitled' ? 'Subtitles' + langSuffix : 'Karaoke');
@@ -3022,6 +3046,8 @@ function renderQueue() {
 
       const pieEl = existingEl.querySelector('.queue-pie');
       if (pieEl) { pieEl.style.setProperty('--pct', Math.max(overallPct, 2) + '%'); pieEl.querySelector('.queue-pie-pct').textContent = overallPct + '%'; }
+      const titleEl = existingEl.querySelector('.queue-item-title');
+      if (titleEl && processingItem.title && !processingItem.title.startsWith('http')) titleEl.textContent = processingItem.title;
       const metaEl = existingEl.querySelector('.queue-item-meta');
       if (metaEl) metaEl.innerHTML = statusLine + (processingItem.added_by ? ' &middot; ' + escapeHtml(processingItem.added_by) : '');
       const fillEl = existingEl.querySelector('.queue-progress-fill');
@@ -3054,7 +3080,7 @@ function renderQueue() {
       const totalSteps = getStepNamesForMode(item.mode).length;
       const stepNum = item.step || 0;
       const stepProg = item.step_progress || 0;
-      const overallPct = totalSteps > 0 ? Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100) : 0;
+      const overallPct = totalSteps > 0 ? Math.max(0, Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100)) : 0;
       icon = `<div class="queue-pie" style="--pct:${Math.max(overallPct, 2)}%"><span class="queue-pie-pct">${overallPct}%</span></div>`;
     } else if (isPaused) {
       icon = '&#9646;&#9646;';
@@ -3073,7 +3099,7 @@ function renderQueue() {
       const totalSteps = getStepNamesForMode(item.mode).length;
       const stepNum = item.step || 0;
       const stepProg = item.step_progress || 0;
-      const barPct = totalSteps > 0 ? Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100) : 0;
+      const barPct = totalSteps > 0 ? Math.max(0, Math.round(((stepNum - 1 + stepProg) / totalSteps) * 100)) : 0;
       progressBar = `<div class="queue-progress"><div class="queue-progress-fill" style="width:${Math.max(barPct, 2)}%"></div></div>`;
     }
 
@@ -3101,8 +3127,8 @@ function renderQueue() {
         ${dragHandle}
         <div class="queue-item-icon">${icon}</div>
         <div class="queue-item-info">
-          <div class="queue-item-title">${escapeHtml(item.title || 'Loading...')}</div>
-          <div class="queue-item-meta">${statusLine}${item.added_by ? ' &middot; ' + escapeHtml(item.added_by) : ''}${!isProcessing && currentUser && item.added_by_id === String(currentUser.id) && appSettings.feature_wishlist ? ` &middot; <a style="color:var(--accent);cursor:pointer;font-size:0.7rem;" onclick="event.stopPropagation(); moveToWishlist('${item.id}')">Request it</a>` : ''}</div>
+          <div class="queue-item-title">${escapeHtml(item.title && !item.title.startsWith('http') ? item.title : (item.url ? item.url.replace(/^https?:\/\//, '').substring(0, 40) + '...' : 'Queued'))}</div>
+          <div class="queue-item-meta">${statusLine}${item.added_by ? ' &middot; ' + escapeHtml(item.added_by) : ''}</div>
           ${progressBar}
         </div>
         <div class="queue-item-actions">${actions}</div>
@@ -3195,16 +3221,17 @@ let selectedLanguages = [];
 const MAX_LANGUAGES = 3;
 
 function getSelectedMode() {
-  const k = document.getElementById('mode-karaoke').checked;
-  const s = document.getElementById('mode-subtitled').checked;
+  const k = document.getElementById('mode-karaoke')?.checked;
+  const s = document.getElementById('mode-subtitled')?.checked;
   if (k && s) return 'both';
   if (s) return 'subtitled';
   return 'karaoke';
 }
 
 function onModeChange() {
-  const s = document.getElementById('mode-subtitled').checked;
-  document.getElementById('lang-picker').style.display = s ? 'flex' : 'none';
+  const s = document.getElementById('mode-subtitled');
+  const picker = document.getElementById('lang-picker');
+  if (s && picker) picker.style.display = s.checked ? 'flex' : 'none';
 }
 
 function addLanguage(code) {
@@ -3221,6 +3248,7 @@ function removeLanguage(code) {
 function renderLangChips() {
   const container = document.getElementById('lang-chips');
   const addSelect = document.getElementById('lang-add-select');
+  if (!container || !addSelect) return;
   container.innerHTML = selectedLanguages.map(code =>
     `<span class="lang-chip">${LANG_NAMES_ALL[code] || code}<button class="lang-chip-remove" onclick="removeLanguage('${code}')">&times;</button></span>`
   ).join('');
@@ -5831,103 +5859,23 @@ async function loadAdminWorkers() {
     const workers = data.workers || [];
 
     container.innerHTML = `<div class="admin-section">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;">Production Workers</label>
-        <button class="admin-btn" onclick="showAddWorkerForm()">+ Add Worker</button>
-      </div>
-      <div id="add-worker-form" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-          <div><label style="font-size:0.7rem;color:var(--text-dim);">Name</label>
-            <input type="text" id="new-worker-name" placeholder="Mac Mini" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;box-sizing:border-box;" /></div>
-          <div><label style="font-size:0.7rem;color:var(--text-dim);">URL</label>
-            <input type="text" id="new-worker-url" placeholder="http://localhost:8001" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;box-sizing:border-box;" /></div>
-        </div>
-        <div style="margin-bottom:8px;"><label style="font-size:0.7rem;color:var(--text-dim);">API Key</label>
-          <input type="text" id="new-worker-key" placeholder="optional shared secret" style="width:100%;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;box-sizing:border-box;" /></div>
-        <div style="display:flex;gap:6px;">
-          <button class="admin-btn" onclick="addWorker()">Add</button>
-          <button class="admin-btn" onclick="document.getElementById('add-worker-form').style.display='none'">Cancel</button>
-        </div>
-      </div>
-      ${workers.length === 0 ? '<p style="color:var(--text-dim);font-size:0.8rem;padding:8px 0;">No workers configured. Add a worker to start processing queue items.</p>' : ''}
+      <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;display:block;margin-bottom:12px;">Connected Workers</label>
+      ${workers.length === 0 ? '<p style="color:var(--text-dim);font-size:0.8rem;padding:8px 0;">No workers connected. Start a worker with the shared API key to begin processing.</p>' : ''}
       ${workers.map(w => {
-        const isOnline = w.online;
-        const isBusy = isOnline && w.status === 'busy';
-        const statusClass = isOnline ? (isBusy ? 'busy' : 'online') : 'offline';
-        const statusText = isOnline ? w.status : 'offline';
-        const jobInfo = w.current_job ? w.current_job.step_name || 'processing' : '';
-        return `<div class="admin-worker-card">
-          <div class="admin-worker-header">
-            <div class="admin-worker-status ${statusClass}"></div>
-            <span class="name" style="font-size:0.92rem;">${escapeHtml(w.name)}</span>
-            <span style="font-size:0.78rem;color:var(--text-muted);text-transform:uppercase;font-weight:500;">${statusText}</span>
-            ${jobInfo ? `<span style="font-size:0.78rem;color:var(--accent);font-style:italic;">${escapeHtml(jobInfo)}</span>` : ''}
-            <div class="admin-worker-actions">
-              <button class="admin-btn" onclick="testWorker('${w.id}')">Test</button>
-              <button class="admin-btn" onclick="toggleWorker('${w.id}')" style="color:${w.enabled !== false ? 'var(--success)' : 'var(--error)'};">${w.enabled !== false ? 'Enabled' : 'Disabled'}</button>
-              <button class="admin-btn danger" onclick="deleteWorker('${w.id}')">Remove</button>
-            </div>
-          </div>
-          <div class="admin-worker-meta">
-            <span>${escapeHtml(w.url)}</span>
-            ${w.device ? `<span>${w.device}</span>` : ''}
-            ${w.last_seen ? `<span>Last seen ${new Date(w.last_seen).toLocaleTimeString()}</span>` : ''}
-          </div>
+        const statusColor = w.online ? (w.status === 'busy' ? '#d4a020' : 'var(--success)') : 'var(--error)';
+        const statusIcon = w.online ? '●' : '○';
+        const statusText = w.online ? w.status : 'offline';
+        return `<div class="admin-row">
+          <span style="color:${statusColor};margin-right:6px;">${statusIcon}</span>
+          <span class="name">${escapeHtml(w.name)}</span>
+          <span class="meta" style="margin-left:8px;">${statusText}</span>
+          ${w.last_seen ? `<span class="meta" style="margin-left:8px;">seen ${new Date(w.last_seen).toLocaleTimeString()}</span>` : ''}
         </div>`;
       }).join('')}
     </div>`;
   } catch (e) {
     container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load workers.</p>';
   }
-}
-
-function showAddWorkerForm() {
-  document.getElementById('add-worker-form').style.display = '';
-  document.getElementById('new-worker-name').focus();
-}
-
-async function addWorker() {
-  const name = document.getElementById('new-worker-name').value.trim();
-  const url = document.getElementById('new-worker-url').value.trim();
-  const api_key = document.getElementById('new-worker-key').value.trim();
-  if (!name || !url) return showAlert('Name and URL are required');
-  const resp = await fetch('/api/admin/workers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, url, api_key }),
-  });
-  if (resp.ok) {
-    const data = await resp.json();
-    // Auto-test to populate status
-    if (data.worker && data.worker.id) {
-      await fetch(`/api/admin/workers/${data.worker.id}/test`, { method: 'POST' });
-    }
-    loadAdminWorkers();
-  } else {
-    showAlert('Failed to add worker');
-  }
-}
-
-async function testWorker(workerId) {
-  const resp = await fetch(`/api/admin/workers/${workerId}/test`, { method: 'POST' });
-  const data = await resp.json();
-  if (data.success) {
-    showAlert(`Connected: ${data.status.name} (${data.status.device}, ${data.status.status})`);
-    loadAdminWorkers();  // refresh to show updated status
-  } else {
-    showAlert(`Failed: ${data.error}`);
-  }
-}
-
-async function toggleWorker(workerId) {
-  await fetch(`/api/admin/workers/${workerId}/toggle`, { method: 'POST' });
-  loadAdminWorkers();
-}
-
-async function deleteWorker(workerId) {
-  if (!await showConfirm('Remove this worker?')) return;
-  await fetch(`/api/admin/workers/${workerId}`, { method: 'DELETE' });
-  loadAdminWorkers();
 }
 
 async function loadAdminSettings() {
@@ -6723,6 +6671,8 @@ function renderWishlistGrid() {
   const query = wishlistFilters.search.toLowerCase();
 
   let filtered = wishlistItems.filter(item => {
+    // Hide queued/fulfilled items — they're visible in the production queue or library
+    if (item.status === 'queued' || item.status === 'fulfilled') return false;
     if (query) {
       const haystack = [item.title, item.artist, item.note, item.url, item.user_name].filter(Boolean).join(' ').toLowerCase();
       if (!haystack.includes(query)) return false;
@@ -6750,20 +6700,31 @@ function renderWishlistGrid() {
     const fulfilledBadge = item.status === 'fulfilled' && item.fulfilled_by_job_id
       ? `<span style="font-size:0.7rem;color:var(--accent);cursor:pointer;" onclick="showPlayerForJob('${item.fulfilled_by_job_id}')">&#9654; Ready</span>`
       : '';
-    const canDelete = currentUser && (item.user_id === String(currentUser.id) || currentUser.role === 'admin');
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    const canDelete = currentUser && (item.user_id === String(currentUser.id) || isAdmin);
     const deleteBtn = canDelete ? `<button class="library-delete-btn" onclick="event.stopPropagation(); deleteWishlistItem('${item.id}')" title="Delete request">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
     </button>` : '';
+    const isRejected = item.status === 'rejected';
+    const rejectedOverlay = isRejected ? `<div style="position:absolute;top:8px;right:8px;background:rgba(180,50,50,0.85);color:#fff;font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:0.5px;">Not Approved</div>` : '';
+    const adminActions = isAdmin && item.status === 'open' ? `<div style="display:flex;gap:4px;margin-top:6px;">
+      <button onclick="event.stopPropagation(); openWishlistDetail('${item.id}')" style="flex:1;padding:4px 0;font-size:0.7rem;font-weight:600;background:var(--accent);color:#1a1612;border:none;border-radius:5px;cursor:pointer;font-family:inherit;">Review</button>
+      <button onclick="event.stopPropagation(); rejectWishlistItem('${item.id}')" style="flex:1;padding:4px 0;font-size:0.7rem;font-weight:600;background:none;color:var(--error);border:1px solid var(--error);border-radius:5px;cursor:pointer;font-family:inherit;">Reject</button>
+    </div>` : '';
     const urlLine = item.url ? `<div style="font-size:0.68rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;">
       <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--text-muted);text-decoration:none;">${escapeHtml(item.url)}</a></div>` : '';
     const artistLine = item.artist ? `<div style="font-size:0.78rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.artist)}</div>` : '';
+    const modeBadge = item.mode === 'both' ? 'Karaoke + Subtitles' : (item.mode === 'subtitled' ? 'Subtitles' : 'Karaoke');
+    const langList = item.languages?.length ? ' · ' + item.languages.map(c => LANG_NAMES_ALL[c] || c).join(', ') : '';
+    const modeLine = `<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:2px;">${modeBadge}${langList}</div>`;
     const noteLine = item.note ? `<div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"${escapeHtml(item.note)}"</div>` : '';
     return `
-      <div class="library-item">
-        <div class="library-item-header">${thumb}${deleteBtn}</div>
+      <div class="library-item" style="${isRejected ? 'opacity:0.5;' : ''}position:relative;">
+        <div class="library-item-header">${thumb}${deleteBtn}${rejectedOverlay}</div>
         <div class="library-info">
           <h3>${escapeHtml(item.title)}</h3>
           ${artistLine}
+          ${modeLine}
           ${urlLine}
           <div class="info-spacer"></div>
           ${noteLine}
@@ -6775,6 +6736,7 @@ function renderWishlistGrid() {
                 style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:0.78rem;color:var(--text-dim);font-family:inherit;${votedStyle}">&#9650; ${item.vote_count}</button>
             </span>
           </div>
+          ${adminActions}
         </div>
       </div>`;
   }).join('');
@@ -6805,7 +6767,139 @@ async function deleteWishlistItem(itemId) {
   } catch (e) { showAlert('Error: ' + e.message); }
 }
 
+let _editWishLangs = [];
+
+function openWishlistDetail(itemId) {
+  const item = wishlistItems.find(i => i.id === itemId);
+  if (!item) return;
+  _editWishLangs = [...(item.languages || [])];
+
+  const wantKaraoke = item.mode === 'karaoke' || item.mode === 'both';
+  const wantSubs = item.mode === 'subtitled' || item.mode === 'both';
+
+  const langOptions = Object.entries(LANG_NAMES_ALL).sort((a,b) => a[1].localeCompare(b[1]))
+    .map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-box" style="max-width:440px;text-align:left;">
+      <h3 style="color:var(--text-bright);margin:0 0 4px;font-size:1rem;">Review Request</h3>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:12px;">by ${escapeHtml(item.user_name || 'Anonymous')}${item.note ? ' — "' + escapeHtml(item.note) + '"' : ''}</div>
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">YouTube URL</label>
+      <input type="text" id="edit-wish-url" value="${escapeHtml(item.url || '')}" placeholder="https://youtube.com/watch?v=..." style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;box-sizing:border-box;" />
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Song Title</label>
+      <input type="text" id="edit-wish-title" value="${escapeHtml(item.title)}" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;box-sizing:border-box;" />
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Artist</label>
+      <input type="text" id="edit-wish-artist" value="${escapeHtml(item.artist || '')}" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;box-sizing:border-box;" />
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Type</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <label style="font-size:0.8rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="edit-wish-karaoke" ${wantKaraoke ? 'checked' : ''} onchange="updateEditWishMode()"> Karaoke</label>
+        <label style="font-size:0.8rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="edit-wish-subtitles" ${wantSubs ? 'checked' : ''} onchange="updateEditWishMode()"> Subtitles</label>
+      </div>
+      <div id="edit-wish-lang-section" style="${wantSubs ? '' : 'display:none;'}margin-bottom:8px;">
+        <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Subtitle Languages</label>
+        <div id="edit-wish-lang-tags" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;"></div>
+        <select id="edit-wish-lang-select" onchange="addEditWishLang(this.value); this.value='';"
+          style="padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.78rem;font-family:inherit;">
+          <option value="">+ Add language</option>
+          ${langOptions}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="admin-btn" onclick="this.closest('.confirm-overlay').remove()">Cancel</button>
+        <button onclick="event.stopPropagation(); rejectWishlistItem('${item.id}'); this.closest('.confirm-overlay').remove();" style="padding:6px 16px;font-size:0.8rem;font-weight:600;background:none;color:var(--error);border:1px solid var(--error);border-radius:6px;cursor:pointer;font-family:inherit;">Reject</button>
+        <button class="btn-primary" style="padding:6px 20px;" onclick="saveAndApproveWishlist('${item.id}')">Approve</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  renderEditWishLangTags();
+}
+
+function updateEditWishMode() {
+  const hasSubs = document.getElementById('edit-wish-subtitles').checked;
+  document.getElementById('edit-wish-lang-section').style.display = hasSubs ? '' : 'none';
+}
+
+function addEditWishLang(code) {
+  if (!code || _editWishLangs.includes(code) || _editWishLangs.length >= 3) return;
+  _editWishLangs.push(code);
+  renderEditWishLangTags();
+}
+
+function removeEditWishLang(code) {
+  _editWishLangs = _editWishLangs.filter(c => c !== code);
+  renderEditWishLangTags();
+}
+
+function renderEditWishLangTags() {
+  const container = document.getElementById('edit-wish-lang-tags');
+  if (!container) return;
+  container.innerHTML = _editWishLangs.map(code =>
+    `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;background:var(--accent);color:#1a1612;border-radius:12px;font-size:0.72rem;font-weight:600;">
+      ${LANG_NAMES_ALL[code] || code}
+      <span onclick="removeEditWishLang('${code}')" style="cursor:pointer;font-size:0.85rem;line-height:1;">&times;</span>
+    </span>`
+  ).join('');
+}
+
+async function saveAndApproveWishlist(itemId) {
+  const url = document.getElementById('edit-wish-url').value.trim();
+  const title = document.getElementById('edit-wish-title').value.trim();
+  const artist = document.getElementById('edit-wish-artist').value.trim();
+  const wantKaraoke = document.getElementById('edit-wish-karaoke').checked;
+  const wantSubs = document.getElementById('edit-wish-subtitles').checked;
+
+  if (!url) { showAlert('YouTube URL is required to approve.'); return; }
+  if (!wantKaraoke && !wantSubs) { showAlert('Select Karaoke and/or Subtitles.'); return; }
+
+  const mode = (wantKaraoke && wantSubs) ? 'both' : (wantSubs ? 'subtitled' : 'karaoke');
+  const languages = wantSubs ? _editWishLangs : [];
+
+  try {
+    // Update the wishlist item first
+    await fetch(`/api/admin/wishlist/${itemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, title, artist, mode, languages }),
+    });
+    // Then approve
+    const resp = await fetch(`/api/admin/wishlist/${itemId}/queue`, { method: 'POST' });
+    if (!resp.ok) { const d = await resp.json().catch(() => ({})); showAlert(d.detail || 'Failed to approve'); return; }
+    document.querySelector('.confirm-overlay')?.remove();
+    const item = wishlistItems.find(i => i.id === itemId);
+    if (item) item.status = 'queued';
+    renderWishlistGrid();
+    try { const qr = await fetch('/api/queue'); const qd = await qr.json(); productionQueue = qd.queue || []; renderQueue(); } catch(e) {}
+  } catch (e) { showAlert('Error: ' + e.message); }
+}
+
+async function approveWishlistItem(itemId) {
+  try {
+    const resp = await fetch(`/api/admin/wishlist/${itemId}/queue`, { method: 'POST' });
+    if (!resp.ok) { const d = await resp.json().catch(() => ({})); showAlert(d.detail || 'Failed to approve'); return; }
+    const item = wishlistItems.find(i => i.id === itemId);
+    if (item) item.status = 'queued';
+    renderWishlistGrid();
+    // Refresh queue
+    try { const qr = await fetch('/api/queue'); const qd = await qr.json(); productionQueue = qd.queue || []; renderQueue(); } catch(e) {}
+  } catch (e) { showAlert('Error: ' + e.message); }
+}
+
+async function rejectWishlistItem(itemId) {
+  try {
+    const resp = await fetch(`/api/admin/wishlist/${itemId}/reject`, { method: 'POST' });
+    if (!resp.ok) { const d = await resp.json().catch(() => ({})); showAlert(d.detail || 'Failed to reject'); return; }
+    const item = wishlistItems.find(i => i.id === itemId);
+    if (item) item.status = 'rejected';
+    renderWishlistGrid();
+  } catch (e) { showAlert('Error: ' + e.message); }
+}
+
 function openRequestForm() {
+  _wishLangs = [];
   const overlay = document.createElement('div');
   overlay.className = 'confirm-overlay';
   overlay.innerHTML = `
@@ -6818,6 +6912,21 @@ function openRequestForm() {
       <input type="text" id="wish-title" placeholder="Song title" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
       <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Artist</label>
       <input type="text" id="wish-artist" placeholder="Artist name" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
+      <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Type</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <label style="font-size:0.8rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="wish-karaoke" checked onchange="updateWishMode()"> Karaoke</label>
+        <label style="font-size:0.8rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="wish-subtitles" onchange="updateWishMode()"> Subtitles</label>
+      </div>
+      <div id="wish-lang-section" style="display:none;margin-bottom:8px;">
+        <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Subtitle Languages</label>
+        <div id="wish-lang-tags" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;"></div>
+        <select id="wish-lang-select" onchange="addWishLang(this.value); this.value='';"
+          style="padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.78rem;font-family:inherit;">
+          <option value="">+ Add language</option>
+        </select>
+      </div>
       <label style="font-size:0.78rem;color:var(--text-dim);display:block;margin-bottom:3px;">Note</label>
       <input type="text" id="wish-note" placeholder="Why you want this song..." maxlength="200" style="width:100%;padding:6px 8px;margin-bottom:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.85rem;" />
       <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -6827,27 +6936,43 @@ function openRequestForm() {
     </div>`;
   document.body.appendChild(overlay);
 
-  document.getElementById('wish-url').addEventListener('blur', async function() {
-    const url = this.value.trim();
-    if (!url) return;
-    const status = document.getElementById('wish-meta-status');
-    status.textContent = 'Fetching metadata...';
-    status.style.color = 'var(--text-dim)';
-    try {
-      const resp = await fetch('/api/wishlist/preview?' + new URLSearchParams({ url }));
-      if (resp.ok) {
-        const meta = await resp.json();
-        if (meta.title && !document.getElementById('wish-title').value) document.getElementById('wish-title').value = meta.title;
-        if (meta.channel && !document.getElementById('wish-artist').value) document.getElementById('wish-artist').value = meta.channel;
-        status.textContent = 'Metadata loaded';
-        status.style.color = 'var(--success, #6b8)';
-      } else {
-        status.textContent = 'Could not fetch metadata - fill in manually';
-      }
-    } catch (e) {
-      status.textContent = 'Could not fetch metadata';
+}
+
+let _wishLangs = [];
+
+function updateWishMode() {
+  const hasSubs = document.getElementById('wish-subtitles').checked;
+  document.getElementById('wish-lang-section').style.display = hasSubs ? '' : 'none';
+  if (hasSubs) {
+    const select = document.getElementById('wish-lang-select');
+    if (select.options.length <= 1) {
+      Object.entries(LANG_NAMES_ALL).sort((a,b) => a[1].localeCompare(b[1])).forEach(([code, name]) => {
+        select.appendChild(new Option(name, code));
+      });
     }
-  });
+  }
+}
+
+function addWishLang(code) {
+  if (!code || _wishLangs.includes(code) || _wishLangs.length >= 3) return;
+  _wishLangs.push(code);
+  renderWishLangTags();
+}
+
+function removeWishLang(code) {
+  _wishLangs = _wishLangs.filter(c => c !== code);
+  renderWishLangTags();
+}
+
+function renderWishLangTags() {
+  const container = document.getElementById('wish-lang-tags');
+  if (!container) return;
+  container.innerHTML = _wishLangs.map(code =>
+    `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;background:var(--accent);color:#1a1612;border-radius:12px;font-size:0.72rem;font-weight:600;">
+      ${LANG_NAMES_ALL[code] || code}
+      <span onclick="removeWishLang('${code}')" style="cursor:pointer;font-size:0.85rem;line-height:1;">&times;</span>
+    </span>`
+  ).join('');
 }
 
 async function submitWishlistRequest() {
@@ -6855,14 +6980,20 @@ async function submitWishlistRequest() {
   const title = document.getElementById('wish-title').value.trim();
   const artist = document.getElementById('wish-artist').value.trim();
   const note = document.getElementById('wish-note').value.trim();
+  const wantKaraoke = document.getElementById('wish-karaoke').checked;
+  const wantSubs = document.getElementById('wish-subtitles').checked;
 
   if (!title && !url) { showAlert('Please enter a song title or YouTube URL.'); return; }
+  if (!wantKaraoke && !wantSubs) { showAlert('Please select Karaoke and/or Subtitles.'); return; }
+
+  const mode = (wantKaraoke && wantSubs) ? 'both' : (wantSubs ? 'subtitled' : 'karaoke');
+  const languages = wantSubs ? _wishLangs : [];
 
   try {
     const resp = await fetch('/api/wishlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: url || null, title: title || null, artist: artist || null, note: note || null }),
+      body: JSON.stringify({ url: url || null, title: title || null, artist: artist || null, note: note || null, mode, languages }),
     });
     if (!resp.ok) { const d = await resp.json().catch(() => ({})); showAlert(d.detail || 'Failed to submit'); return; }
     document.querySelector('.confirm-overlay')?.remove();

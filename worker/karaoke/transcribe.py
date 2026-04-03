@@ -102,98 +102,18 @@ def _filter_hallucinations(segments: list[Segment]) -> list[Segment]:
 def transcribe(audio_path: Path, device: str = "cpu",
                language: str | None = None,
                translate: bool = False,
-               engine: str = "whisper") -> tuple[list[Segment], str]:
+               **kwargs) -> tuple[list[Segment], str]:
     """
-    Transcribe audio with word-level timestamps.
+    Transcribe audio with word-level timestamps using Whisper large-v3-turbo.
 
     Args:
-        engine: "whisper" (default) or "deepgram"
         language: Optional language code (e.g. "en", "fr"). None = auto-detect.
-        translate: If True, translate to English (Whisper only).
+        translate: If True, translate to English.
 
     Returns:
         Tuple of (segments, detected_language_code).
     """
-    if engine == "deepgram":
-        segments, lang = _transcribe_deepgram(audio_path, language=language)
-        total_words = sum(len(s.words) for s in segments)
-        if total_words < 10:
-            log.warning("Deepgram returned only %d words — falling back to Whisper", total_words)
-            return _transcribe_whisper(audio_path, device=device, language=language, translate=translate)
-        return segments, lang
     return _transcribe_whisper(audio_path, device=device, language=language, translate=translate)
-
-
-def _transcribe_deepgram(audio_path: Path,
-                         language: str | None = None) -> tuple[list[Segment], str]:
-    """Transcribe using Deepgram Nova-3 via REST API."""
-    import os
-    import httpx
-
-    api_key = os.getenv("DEEPGRAM_API_KEY", "")
-    if not api_key:
-        log.warning("DEEPGRAM_API_KEY not set, falling back to Whisper")
-        return _transcribe_whisper(audio_path)
-
-    # Build query params
-    params = {"model": "nova-3", "smart_format": "false"}
-    if language:
-        params["language"] = language
-    else:
-        params["detect_language"] = "true"
-
-    headers = {
-        "Authorization": f"Token {api_key}",
-        "Content-Type": "audio/wav",
-    }
-
-    with open(audio_path, "rb") as f:
-        audio_data = f.read()
-
-    log.info("Sending %d bytes to Deepgram...", len(audio_data))
-    resp = httpx.post(
-        "https://api.deepgram.com/v1/listen",
-        params=params,
-        headers=headers,
-        content=audio_data,
-        timeout=300,
-    )
-
-    if resp.status_code != 200:
-        log.error("Deepgram API error %d: %s", resp.status_code, resp.text[:500])
-        log.warning("Falling back to Whisper")
-        return _transcribe_whisper(audio_path)
-
-    data = resp.json()
-    channel = data["results"]["channels"][0]
-    alt = channel["alternatives"][0]
-    detected_lang = channel.get("detected_language") or language or "en"
-
-    # Convert to our Segment/Word format
-    segments: list[Segment] = []
-    current_words: list[Word] = []
-    SEGMENT_GAP = 1.0
-
-    for w in alt.get("words", []):
-        text = (w.get("punctuated_word") or w.get("word", "")).strip()
-        if not text:
-            continue
-        word = Word(text=text, start=w["start"], end=w["end"])
-        if current_words and (word.start - current_words[-1].end) >= SEGMENT_GAP:
-            segments.append(Segment(
-                start=current_words[0].start, end=current_words[-1].end,
-                words=current_words))
-            current_words = []
-        current_words.append(word)
-
-    if current_words:
-        segments.append(Segment(
-            start=current_words[0].start, end=current_words[-1].end,
-            words=current_words))
-
-    log.info("Deepgram: %d segments, %d words, lang=%s",
-             len(segments), sum(len(s.words) for s in segments), detected_lang)
-    return segments, detected_lang
 
 
 def _transcribe_whisper(audio_path: Path, device: str = "cpu",
@@ -207,7 +127,8 @@ def _transcribe_whisper(audio_path: Path, device: str = "cpu",
         condition_on_previous_text=False,
         language=language if not translate else None,
         task="translate" if translate else "transcribe",
-        hallucination_silence_threshold=3.0,
+        hallucination_silence_threshold=2.0,
+        no_speech_threshold=0.6,
     )
 
     detected_lang = info.language or "en"

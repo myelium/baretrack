@@ -305,7 +305,9 @@ class WishlistItem(Base):
     artist: Mapped[str | None] = mapped_column(String(255))
     thumbnail: Mapped[str | None] = mapped_column(String(512))
     note: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(20), default="open")  # "open", "queued", "fulfilled"
+    mode: Mapped[str | None] = mapped_column(String(20), default="karaoke")  # "karaoke", "subtitled", "both"
+    languages: Mapped[str | None] = mapped_column(Text)  # JSON array: ["en", "vi"]
+    status: Mapped[str] = mapped_column(String(20), default="open")  # "open", "queued", "fulfilled", "rejected"
     fulfilled_by_job_id: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
@@ -321,6 +323,8 @@ class WishlistItem(Base):
             "artist": self.artist,
             "thumbnail": self.thumbnail,
             "note": self.note,
+            "mode": self.mode or "karaoke",
+            "languages": json.loads(self.languages) if self.languages else [],
             "status": self.status,
             "fulfilled_by_job_id": self.fulfilled_by_job_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,

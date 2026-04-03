@@ -126,7 +126,7 @@ app = FastAPI()
 _lock = threading.Lock()
 _active_jobs: dict[str, dict] = {}  # job_id -> progress dict (from worker callbacks)
 _queue: list[dict] = []  # production queue
-_worker_states: dict[str, dict] = {}  # worker_id -> {status, last_seen, current_job, ...}
+_worker_states: dict[str, dict] = {}  # worker_name -> {status, last_seen, ...}
 
 
 def _db_config_get(key: str, default: dict | list | None = None):
@@ -230,31 +230,22 @@ def _on_job_completed(job_id: str, data: dict) -> None:
     except Exception as e:
         logger.error("Failed to save job metadata for %s: %s", job_id, e)
 
-    # Post-completion: generate analysis
-    if _load_settings().get("feature_analysis", True) and data.get("lyrics"):
+    # Save analysis from worker (if included in completion data)
+    if data.get("analysis_text"):
         try:
-            words = json.loads(data["lyrics"])
-            lyrics_text = " ".join(w["text"] for w in words)
-            prompts = _load_prompts()
-            custom_prompt = prompts.get("analysis_prompt") or None
-            from analyze_lyrics import analyze_lyrics
-            title = (queue_item or {}).get("title")
-            artist = (active_job or {}).get("artist") or (queue_item or {}).get("channel")
-            result = analyze_lyrics(lyrics_text, title=title, artist=artist,
-                                    custom_prompt=custom_prompt)
             _db = get_session()
             _meta = _db.query(LibraryItem).filter(LibraryItem.job_id == job_id).first()
             if _meta:
-                _meta.analysis_text = result.get("analysis", "")
-                _meta.analysis_song_info = result.get("song_info", "")
-                if result.get("year") and not _meta.year:
-                    _meta.year = result["year"]
-                if not _meta.artist and result.get("identified_artist"):
-                    _meta.artist = result["identified_artist"]
+                _meta.analysis_text = data["analysis_text"]
+                _meta.analysis_song_info = data.get("analysis_song_info", "")
+                if data.get("year") and not _meta.year:
+                    _meta.year = data["year"]
+                if data.get("identified_artist") and not _meta.artist:
+                    _meta.artist = data["identified_artist"]
             _db.commit()
             _db.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to save analysis for %s: %s", job_id, e)
 
     # Mark matching wishlist items as fulfilled
     job_url = (queue_item or {}).get("url")
@@ -395,7 +386,13 @@ async def worker_poll(request: Request):
                 next_item = item
                 break
         if not next_item:
-            return {"job": None}
+            # No jobs — check if any items need metadata
+            needs_meta = []
+            for item in _queue:
+                title = item.get("title", "")
+                if not item.get("thumbnail") and item.get("url") and (not title or title.startswith("http")):
+                    needs_meta.append({"id": item["id"], "url": item["url"]})
+            return {"job": None, "metadata_needed": needs_meta}
 
         # Claim it
         job_id = next_item["id"]
@@ -430,14 +427,37 @@ async def worker_poll(request: Request):
             "feature_lyrics_correction": settings.get("feature_lyrics_correction", True),
             "feature_translation": settings.get("feature_translation", True),
             "feature_analysis": settings.get("feature_analysis", True),
+            "analysis_prompt": _load_prompts().get("analysis_prompt", ""),
             "demucs_model": settings.get("demucs_model", "htdemucs_ft"),
-            "transcription_engine": settings.get("transcription_engine", "whisper"),
             "max_subtitle_languages": settings.get("max_subtitle_languages", 3),
         },
     }
 
     logger.info("Dispatched job %s to worker %s", job_id, worker_name)
     return {"job": job}
+
+
+@app.post("/api/worker/metadata")
+async def worker_metadata_update(request: Request):
+    """Worker reports fetched metadata for a queued item."""
+    if not _verify_worker_key(request):
+        raise HTTPException(401, "Invalid worker key")
+    data = await request.json()
+    item_id = data.get("id")
+    if not item_id:
+        raise HTTPException(400, "id required")
+    with _lock:
+        for item in _queue:
+            if item.get("id") == item_id:
+                if data.get("title"):
+                    item["title"] = data["title"]
+                if data.get("thumbnail"):
+                    item["thumbnail"] = data["thumbnail"]
+                if data.get("channel"):
+                    item["channel"] = data["channel"]
+                break
+    _save_queue()
+    return {"ok": True}
 
 
 @app.post("/api/worker/progress")
@@ -464,18 +484,24 @@ async def worker_progress(request: Request):
         else:
             _active_jobs[job_id] = data
 
-        # Update queue item metadata if worker reports title/thumbnail
-        if data.get("title") or data.get("thumbnail") or data.get("channel"):
-            for item in _queue:
-                if item.get("id") == job_id:
-                    if data.get("title"):
-                        item["title"] = data["title"]
-                    if data.get("thumbnail"):
-                        item["thumbnail"] = data["thumbnail"]
-                    if data.get("channel"):
-                        item["channel"] = data["channel"]
-                    break
-            _save_queue()
+        # Persist progress and metadata to queue item (survives server restart)
+        for item in _queue:
+            if item.get("id") == job_id:
+                if data.get("step") is not None:
+                    item["step"] = data["step"]
+                if data.get("step_name"):
+                    item["step_name"] = data["step_name"]
+                if data.get("step_progress") is not None:
+                    item["step_progress"] = data["step_progress"]
+                if data.get("title"):
+                    item["title"] = data["title"]
+                if data.get("thumbnail"):
+                    item["thumbnail"] = data["thumbnail"]
+                if data.get("channel"):
+                    item["channel"] = data["channel"]
+                item["status"] = "processing"
+                break
+        _save_queue()
 
         # Check if job was cancelled while worker was processing
         cancelled = False
@@ -542,112 +568,30 @@ async def worker_upload_urls(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Admin worker management endpoints
+# Admin worker endpoints
 # ---------------------------------------------------------------------------
 
 @app.get("/api/admin/workers")
 def admin_list_workers(admin: User = Depends(require_admin)):
-    """List configured workers with live status."""
-    workers = _load_workers()
+    """List workers that have connected via polling."""
+    now = datetime.now(timezone.utc)
     result = []
-    for w in workers:
-        state = _worker_states.get(w["id"], {})
+    for name, state in _worker_states.items():
+        last_seen = state.get("last_seen", "")
+        online = False
+        if last_seen:
+            try:
+                ls = datetime.fromisoformat(last_seen)
+                online = (now - ls).total_seconds() < 60  # seen in last 60s
+            except Exception:
+                pass
         result.append({
-            **w,
-            "api_key": "***" if w.get("api_key") else "",  # don't expose keys
+            "name": name,
             "status": state.get("status", "unknown"),
-            "device": state.get("device", "unknown"),
-            "online": state.get("online", False),
-            "last_seen": state.get("last_seen"),
-            "current_job": state.get("current_job"),
+            "online": online,
+            "last_seen": last_seen,
         })
     return {"workers": result}
-
-
-class WorkerCreateRequest(BaseModel):
-    name: str
-    url: str
-    api_key: str = ""
-
-
-@app.post("/api/admin/workers")
-def admin_add_worker(req: WorkerCreateRequest, admin: User = Depends(require_admin)):
-    workers = _load_workers()
-    worker = {
-        "id": f"w-{secrets.token_hex(4)}",
-        "name": req.name,
-        "url": req.url.rstrip("/"),
-        "api_key": req.api_key,
-        "enabled": True,
-    }
-    workers.append(worker)
-    _save_workers(workers)
-    return {"worker": {**worker, "api_key": "***" if worker["api_key"] else ""}}
-
-
-@app.put("/api/admin/workers/{worker_id}")
-def admin_update_worker(worker_id: str, req: WorkerCreateRequest,
-                        admin: User = Depends(require_admin)):
-    workers = _load_workers()
-    for w in workers:
-        if w["id"] == worker_id:
-            w["name"] = req.name
-            w["url"] = req.url.rstrip("/")
-            if req.api_key and req.api_key != "***":
-                w["api_key"] = req.api_key
-            _save_workers(workers)
-            return {"updated": True}
-    raise HTTPException(404, "Worker not found")
-
-
-@app.delete("/api/admin/workers/{worker_id}")
-def admin_delete_worker(worker_id: str, admin: User = Depends(require_admin)):
-    workers = _load_workers()
-    workers = [w for w in workers if w["id"] != worker_id]
-    _save_workers(workers)
-    _worker_states.pop(worker_id, None)
-    return {"deleted": True}
-
-
-@app.post("/api/admin/workers/{worker_id}/test")
-def admin_test_worker(worker_id: str, admin: User = Depends(require_admin)):
-    """Ping a worker to test connectivity."""
-    workers = _load_workers()
-    worker = next((w for w in workers if w["id"] == worker_id), None)
-    if not worker:
-        raise HTTPException(404, "Worker not found")
-    try:
-        headers = {}
-        if worker.get("api_key"):
-            headers["Authorization"] = f"Bearer {worker['api_key']}"
-        resp = httpx.get(f"{worker['url']}/worker/status", headers=headers, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            # Update worker state immediately so UI reflects it
-            _worker_states[worker_id] = {
-                "status": data.get("status", "idle"),
-                "name": data.get("name", worker.get("name", "")),
-                "device": data.get("device", "unknown"),
-                "current_job": data.get("current_job"),
-                "last_seen": _now_iso(),
-                "online": True,
-            }
-            return {"success": True, "status": data}
-        return {"success": False, "error": f"HTTP {resp.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@app.post("/api/admin/workers/{worker_id}/toggle")
-def admin_toggle_worker(worker_id: str, admin: User = Depends(require_admin)):
-    """Enable/disable a worker."""
-    workers = _load_workers()
-    for w in workers:
-        if w["id"] == worker_id:
-            w["enabled"] = not w.get("enabled", True)
-            _save_workers(workers)
-            return {"enabled": w["enabled"]}
-    raise HTTPException(404, "Worker not found")
 
 
 # ---------------------------------------------------------------------------
@@ -658,17 +602,18 @@ def _startup() -> None:
     """On startup: load queue, reset stale jobs."""
     _load_queue()
 
-    # Reset stale items on startup (server restarted, workers may have changed)
+    # Reset retryable failed items on startup
+    # Processing items are left as-is — the worker may still be running
     changed = False
     for item in _queue:
-        if item.get("status") == "processing":
-            item["status"] = "queued"
-            item.pop("worker_name", None)
-            changed = True
-        elif item.get("status") == "failed" and item.get("retries", 0) < MAX_RETRIES:
+        if item.get("status") == "failed" and item.get("retries", 0) < MAX_RETRIES:
             item["status"] = "queued"
             item.pop("error", None)
             changed = True
+        elif item.get("status") == "cancelled":
+            _queue[:] = [i for i in _queue if i.get("status") != "cancelled"]
+            changed = True
+            break
     if changed:
         _save_queue()
 
@@ -932,7 +877,7 @@ def create_job(req: JobRequest, user: User | None = Depends(get_optional_user)):
         "url": req.url,
         "mode": mode,
         "languages": languages,
-        "title": req.url,
+        "title": req.title or req.url,
         "added_by": user.name.split()[0] if user and user.name else None,
         "added_by_id": str(user.id) if user else None,
         "status": "queued",
@@ -962,6 +907,7 @@ class QueueRequest(BaseModel):
     url: str
     mode: str = "karaoke"
     languages: list[str] = []
+    title: str | None = None
 
 
 @app.post("/api/queue")
@@ -1012,7 +958,7 @@ def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_use
         "url": req.url,
         "mode": mode,
         "languages": languages,
-        "title": req.url,
+        "title": req.title or req.url,
         "status": "queued",
         "added_by": user.name.split()[0] if user and user.name else "Anonymous",
         "added_by_id": str(user.id) if user else None,
@@ -1165,7 +1111,7 @@ def resume_job(job_id: str):
         item = next((i for i in _queue if i["id"] == job_id), None)
         if item:
             item["status"] = "queued"
-            item.pop("worker_id", None)
+            item.pop("worker_name", None)
             item.pop("error", None)
         else:
             raise HTTPException(404, "Job not found in queue")
@@ -1326,7 +1272,6 @@ _DEFAULT_SETTINGS = {
     "default_can_request_songs": True,
     "max_disk_space_mb": 0,
     "demucs_model": "htdemucs_ft",
-    "transcription_engine": "whisper",
     "max_subtitle_languages": 3,
 }
 
@@ -1978,6 +1923,8 @@ class WishlistCreateRequest(BaseModel):
     title: str | None = None
     artist: str | None = None
     note: str | None = None
+    mode: str = "karaoke"
+    languages: list[str] = []
 
 
 @app.get("/api/wishlist")
@@ -1987,7 +1934,7 @@ def list_wishlist(user: User | None = Depends(get_optional_user),
     if not _load_settings().get("feature_wishlist", True):
         raise HTTPException(403, "Wishlist feature is disabled")
     from sqlalchemy import func
-    items = db.query(WishlistItem).filter(WishlistItem.status == "open").all()
+    items = db.query(WishlistItem).filter(WishlistItem.status.in_(["open", "rejected"])).all()
     result = []
     for item in items:
         vote_count = db.query(func.count(WishlistVote.id)).filter(
@@ -2024,9 +1971,13 @@ def create_wishlist_item(req: WishlistCreateRequest,
     if not title:
         raise HTTPException(400, "Title is required")
 
+    mode = req.mode if req.mode in ("karaoke", "subtitled", "both") else "karaoke"
+    languages = req.languages[:3] if mode in ("subtitled", "both") else []
+
     item = WishlistItem(
         user_id=user.id, url=url, title=title, artist=artist,
         thumbnail=thumbnail, note=note,
+        mode=mode, languages=json.dumps(languages) if languages else None,
     )
     db.add(item)
     db.commit()
@@ -2104,6 +2055,29 @@ def admin_list_wishlist(admin: User = Depends(require_admin),
     return {"items": result}
 
 
+@app.patch("/api/admin/wishlist/{item_id}")
+async def admin_update_wishlist(item_id: str, request: Request,
+                                admin: User = Depends(require_admin),
+                                db: Session = Depends(get_db)):
+    """Update a wishlist item's details before approving."""
+    item = db.query(WishlistItem).filter(WishlistItem.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Wishlist item not found")
+    data = await request.json()
+    if "url" in data:
+        item.url = data["url"] or None
+    if "title" in data and data["title"]:
+        item.title = data["title"]
+    if "artist" in data:
+        item.artist = data["artist"] or None
+    if "mode" in data:
+        item.mode = data["mode"]
+    if "languages" in data:
+        item.languages = json.dumps(data["languages"]) if data["languages"] else None
+    db.commit()
+    return {"updated": True}
+
+
 @app.post("/api/admin/wishlist/{item_id}/queue")
 def admin_queue_wishlist(item_id: str, admin: User = Depends(require_admin),
                          db: Session = Depends(get_db)):
@@ -2115,8 +2089,21 @@ def admin_queue_wishlist(item_id: str, admin: User = Depends(require_admin),
         raise HTTPException(400, "Item has no URL — cannot queue for production")
     item.status = "queued"
     db.commit()
-    req = QueueRequest(url=item.url, mode="karaoke", languages=[])
+    languages = json.loads(item.languages) if item.languages else []
+    req = QueueRequest(url=item.url, mode=item.mode or "karaoke", languages=languages, title=item.title)
     return add_to_queue(req, admin, db)
+
+
+@app.post("/api/admin/wishlist/{item_id}/reject")
+def admin_reject_wishlist(item_id: str, admin: User = Depends(require_admin),
+                          db: Session = Depends(get_db)):
+    """Reject a wishlist request."""
+    item = db.query(WishlistItem).filter(WishlistItem.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Wishlist item not found")
+    item.status = "rejected"
+    db.commit()
+    return {"rejected": True}
 
 
 @app.delete("/api/admin/wishlist/{item_id}")

@@ -278,8 +278,7 @@ def _run_karaoke_pipeline(job_id: str, url: str, output_dir: Path,
     _report_progress(callback_url, callback_key, job_id,
                      step=3, step_name="Transcribing lyrics", step_progress=0.0)
     transcribe_path = audio_path if audio_path.exists() else vocals_mp3
-    segments, detected_lang = transcribe(transcribe_path, device=device,
-                                            engine=settings.get("transcription_engine", "whisper"))
+    segments, detected_lang = transcribe(transcribe_path, device=device)
     if audio_path.exists() and audio_path != vocals_mp3:
         audio_path.unlink(missing_ok=True)
     _report_progress(callback_url, callback_key, job_id, language_detected=detected_lang)
@@ -377,8 +376,7 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
     t0 = time.monotonic()
     _report_progress(callback_url, callback_key, job_id,
                      step=2, step_name="Transcribing", step_progress=0.0)
-    segments, detected_lang = transcribe(audio_path, device=device,
-                                            engine=settings.get("transcription_engine", "whisper"))
+    segments, detected_lang = transcribe(audio_path, device=device)
     _report_progress(callback_url, callback_key, job_id, language_detected=detected_lang)
 
     words_list = []
@@ -481,8 +479,7 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
     _report_progress(callback_url, callback_key, job_id,
                      step=3, step_name="Transcribing lyrics", step_progress=0.0)
     transcribe_path = audio_path if audio_path.exists() else vocals_mp3
-    segments, detected_lang = transcribe(transcribe_path, device=device,
-                                            engine=settings.get("transcription_engine", "whisper"))
+    segments, detected_lang = transcribe(transcribe_path, device=device)
     if audio_path.exists() and audio_path != vocals_mp3:
         audio_path.unlink(missing_ok=True)
     _report_progress(callback_url, callback_key, job_id, language_detected=detected_lang)
@@ -666,6 +663,26 @@ def _execute_job(job: dict):
             })
             return
 
+        # Generate "Between the Lines" analysis
+        analysis_result = {}
+        if settings.get("feature_analysis", True) and result.get("words_list"):
+            if _check_cancel(): return
+            _report_progress(callback_url, callback_key, job_id,
+                             step_name="Analyzing lyrics", step_progress=0.0)
+            try:
+                from karaoke.analyze_lyrics import analyze_lyrics
+                lyrics_text = " ".join(w["text"] for w in result["words_list"])
+                with _lock:
+                    title = _current_job.get("title") if _current_job else None
+                    channel = _current_job.get("channel") if _current_job else None
+                custom_prompt = settings.get("analysis_prompt") or None
+                analysis_result = analyze_lyrics(lyrics_text, title=title, artist=channel,
+                                                 custom_prompt=custom_prompt)
+                logger.info("[%s] Analysis complete: %s", job_id[:20],
+                            analysis_result.get("song_info", ""))
+            except Exception as e:
+                logger.error("[%s] Analysis failed: %s", job_id[:20], e)
+
         # Collect files to upload
         upload_files = {}
         for fname in ["karaoke.mp4", "instrumental.mp3", "vocals.mp3", "lyrics.json"]:
@@ -703,6 +720,10 @@ def _execute_job(job: dict):
             "r2_keys": r2_keys,
             "file_size_bytes": total_size,
             "finished_at": _now_iso(),
+            "analysis_text": analysis_result.get("analysis", ""),
+            "analysis_song_info": analysis_result.get("song_info", ""),
+            "year": analysis_result.get("year"),
+            "identified_artist": analysis_result.get("identified_artist"),
         }
 
         # Save completion manifest locally in case callback fails
@@ -741,19 +762,40 @@ def _execute_job(job: dict):
 # Polling loop
 # ---------------------------------------------------------------------------
 
-def _poll_for_job() -> dict | None:
-    """Poll the server for the next available job. Returns job dict or None."""
+def _poll_server() -> dict:
+    """Poll the server. Returns {job, metadata_needed}."""
     headers = {"X-Worker-Name": WORKER_NAME}
     if WORKER_API_KEY:
         headers["Authorization"] = f"Bearer {WORKER_API_KEY}"
     try:
         resp = httpx.get(f"{SERVER_URL}/api/worker/poll", headers=headers, timeout=10)
         if resp.status_code == 200:
-            data = resp.json()
-            return data.get("job")
+            return resp.json()
     except Exception as e:
         logger.warning("Poll failed: %s", e)
-    return None
+    return {}
+
+
+def _fetch_queue_metadata(items: list[dict]):
+    """Fetch YouTube metadata for queued items that don't have it yet."""
+    headers = {"Content-Type": "application/json", "X-Worker-Name": WORKER_NAME}
+    if WORKER_API_KEY:
+        headers["Authorization"] = f"Bearer {WORKER_API_KEY}"
+    for item in items:
+        try:
+            meta = fetch_metadata(item["url"])
+            data = {"id": item["id"]}
+            if meta.get("title"):
+                data["title"] = meta["title"]
+            if meta.get("thumbnail"):
+                data["thumbnail"] = meta["thumbnail"]
+            if meta.get("channel"):
+                data["channel"] = meta["channel"]
+            httpx.post(f"{SERVER_URL}/api/worker/metadata", json=data,
+                       headers=headers, timeout=15)
+            logger.info("Fetched metadata for %s: %s", item["id"][:20], meta.get("title", "?"))
+        except Exception as e:
+            logger.warning("Metadata fetch failed for %s: %s", item["id"][:20], e)
 
 
 def _retry_undelivered():
@@ -790,11 +832,16 @@ def _run():
     _retry_undelivered()
 
     while True:
-        job = _poll_for_job()
+        poll = _poll_server()
+        job = poll.get("job")
         if job:
             logger.info("Picked up job %s: %s (%s)", job["job_id"], job.get("url", ""), job.get("mode", ""))
             _execute_job(job)
         else:
+            # No job — fetch metadata for queued items that need it
+            metadata_needed = poll.get("metadata_needed", [])
+            if metadata_needed:
+                _fetch_queue_metadata(metadata_needed)
             time.sleep(POLL_INTERVAL)
 
 
