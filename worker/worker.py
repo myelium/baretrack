@@ -1,12 +1,12 @@
 """Standalone karaoke production worker.
 
-A stateless HTTP service that accepts jobs from the Baretraks app,
-runs the pipeline (download, separate, transcribe, compose), uploads
-results to R2, and reports back to the app via callbacks.
+Polls the Baretraks server for queued jobs, processes them
+(download, separate, transcribe, compose), uploads results
+to R2 via presigned URLs, and reports back via callbacks.
 
 Usage:
-    python worker.py                           # default port 8001
-    WORKER_PORT=8002 python worker.py          # custom port
+    python worker.py
+    SERVER_URL=https://baretraks.example.com python worker.py
 """
 
 from pathlib import Path as _Path
@@ -19,10 +19,8 @@ import json
 import logging
 import os
 import platform
-import secrets
 import shutil
 import subprocess
-import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -30,8 +28,6 @@ from pathlib import Path
 
 import httpx
 import torch
-from fastapi import Depends, FastAPI, HTTPException, Request
-from pydantic import BaseModel
 
 # Pipeline imports — these are the core processing modules
 from karaoke.compose import compose
@@ -46,7 +42,8 @@ from karaoke.translate import translate_srt
 # ---------------------------------------------------------------------------
 WORKER_NAME = os.getenv("WORKER_NAME", platform.node() or "worker")
 WORKER_API_KEY = os.getenv("WORKER_API_KEY", "")
-WORKER_PORT = int(os.getenv("WORKER_PORT", "8001"))
+SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "5"))  # seconds between polls
 DEVICE = os.getenv("DEVICE", "auto").lower()
 if DEVICE == "auto":
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -57,32 +54,12 @@ WORK_DIR = Path(os.getenv("WORKER_WORK_DIR", "worker_output"))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-from contextlib import asynccontextmanager
-
-@asynccontextmanager
-async def lifespan(app):
-    _retry_undelivered()
-    yield
-
-app = FastAPI(title="Baretraks Worker", lifespan=lifespan)
-
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 _lock = threading.Lock()
 _current_job: dict | None = None  # {job_id, step, step_name, step_progress, ...}
 _cancel_requested = False
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-
-def verify_api_key(request: Request):
-    if not WORKER_API_KEY:
-        return  # no auth configured
-    auth = request.headers.get("Authorization", "")
-    if auth != f"Bearer {WORKER_API_KEY}":
-        raise HTTPException(401, "Invalid API key")
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +117,7 @@ def _send_callback(callback_url: str, callback_key: str, endpoint: str, data: di
                    retries: int = 0) -> bool:
     """POST data to the app's callback endpoint. Returns True on success."""
     url = f"{callback_url}{endpoint}"
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "X-Worker-Name": WORKER_NAME}
     if callback_key:
         headers["Authorization"] = f"Bearer {callback_key}"
     attempts = 1 + retries
@@ -158,8 +135,8 @@ def _send_callback(callback_url: str, callback_key: str, endpoint: str, data: di
 
 
 def _report_progress(callback_url: str, callback_key: str, job_id: str, **kwargs):
-    """Send a debounced progress update (max 1/sec)."""
-    global _last_progress_time
+    """Send a debounced progress update (max 1/sec). Checks for cancel signal."""
+    global _last_progress_time, _cancel_requested
     now = time.monotonic()
     # Always send for step changes, debounce for progress-only updates
     is_step_change = "step" in kwargs or "status" in kwargs
@@ -176,7 +153,19 @@ def _report_progress(callback_url: str, callback_key: str, job_id: str, **kwargs
             _current_job.update(kwargs)
 
     data = {"job_id": job_id, **kwargs}
-    _send_callback(callback_url, callback_key, "/api/worker/progress", data)
+    url = f"{callback_url}/api/worker/progress"
+    headers = {"Content-Type": "application/json", "X-Worker-Name": WORKER_NAME}
+    if callback_key:
+        headers["Authorization"] = f"Bearer {callback_key}"
+    try:
+        resp = httpx.post(url, json=data, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            result = resp.json()
+            if result.get("cancel"):
+                logger.info("[%s] Cancel requested by server", job_id[:20])
+                _cancel_requested = True
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +400,9 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
     srt_data = {}
     if languages and settings.get("feature_translation", True):
         t0 = time.monotonic()
+        with _lock:
+            _title = _current_job.get("title") if _current_job else None
+            _channel = _current_job.get("channel") if _current_job else None
         max_langs = settings.get("max_subtitle_languages", 3)
         target_langs = languages[:max_langs]
         for i, lang in enumerate(target_langs):
@@ -418,7 +410,8 @@ def _run_subtitled_pipeline(job_id: str, url: str, output_dir: Path,
                              step=3, step_name=f"Translating ({lang})",
                              step_progress=i / len(target_langs))
             try:
-                translated_srt = translate_srt(source_srt_text, lang)
+                translated_srt = translate_srt(source_srt_text, lang,
+                                               title=_title, artist=_channel)
                 srt_name = f"subtitles_{lang}.srt"
                 (output_dir / srt_name).write_text(translated_srt)
                 srt_data[lang] = translated_srt
@@ -557,6 +550,9 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
         source_srt_text = source_srt_path.read_text()
         source_srt_path.unlink(missing_ok=True)
 
+        with _lock:
+            _title = _current_job.get("title") if _current_job else None
+            _channel = _current_job.get("channel") if _current_job else None
         max_langs = settings.get("max_subtitle_languages", 3)
         target_langs = languages[:max_langs]
         for i, lang in enumerate(target_langs):
@@ -565,7 +561,8 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
                              step=6, step_name=f"Translating ({lang})",
                              step_progress=i / len(target_langs))
             try:
-                translated_srt = translate_srt(source_srt_text, lang)
+                translated_srt = translate_srt(source_srt_text, lang,
+                                               title=_title, artist=_channel)
                 srt_name = f"subtitles_{lang}.srt"
                 (output_dir / srt_name).write_text(translated_srt)
                 srt_data[lang] = translated_srt
@@ -619,7 +616,27 @@ def _execute_job(job: dict):
 
     try:
         _report_progress(callback_url, callback_key, job_id,
-                         status="running", step=0, step_name="Starting")
+                         status="running", step=0, step_name="Fetching metadata")
+
+        # Fetch YouTube metadata and report back so queue card updates
+        try:
+            meta = fetch_metadata(url)
+            _report_progress(callback_url, callback_key, job_id,
+                             title=meta.get("title"),
+                             thumbnail=meta.get("thumbnail"),
+                             channel=meta.get("channel"),
+                             upload_date=meta.get("upload_date"),
+                             categories=meta.get("categories", []),
+                             tags=meta.get("tags", []))
+            with _lock:
+                if _current_job:
+                    _current_job["title"] = meta.get("title")
+                    _current_job["channel"] = meta.get("channel")
+        except Exception as e:
+            logger.warning("Metadata fetch failed: %s", e)
+
+        if _check_cancel(): return
+
         pipeline_start = time.monotonic()
 
         if mode == "subtitled":
@@ -721,84 +738,23 @@ def _execute_job(job: dict):
 
 
 # ---------------------------------------------------------------------------
-# API Endpoints
+# Polling loop
 # ---------------------------------------------------------------------------
 
-class JobRequest(BaseModel):
-    job_id: str
-    url: str
-    mode: str = "karaoke"
-    languages: list[str] = []
-    callback_url: str
-    callback_key: str = ""
-    r2_prefix: str = ""
-    settings: dict = {}
-    title: str | None = None
-    channel: str | None = None
-
-
-@app.get("/worker/status")
-def get_status(_=Depends(verify_api_key)):
-    with _lock:
-        if _current_job:
-            return {
-                "name": WORKER_NAME,
-                "device": DEVICE,
-                "status": "busy",
-                "current_job": {
-                    "job_id": _current_job.get("job_id"),
-                    "step": _current_job.get("step"),
-                    "step_name": _current_job.get("step_name"),
-                    "step_progress": _current_job.get("step_progress"),
-                },
-            }
-        return {
-            "name": WORKER_NAME,
-            "device": DEVICE,
-            "status": "idle",
-            "current_job": None,
-        }
-
-
-class MetadataRequest(BaseModel):
-    url: str
-
-
-@app.post("/worker/metadata")
-def fetch_metadata_endpoint(req: MetadataRequest, _=Depends(verify_api_key)):
-    """Fetch YouTube metadata without downloading. Called by the app."""
+def _poll_for_job() -> dict | None:
+    """Poll the server for the next available job. Returns job dict or None."""
+    headers = {"X-Worker-Name": WORKER_NAME}
+    if WORKER_API_KEY:
+        headers["Authorization"] = f"Bearer {WORKER_API_KEY}"
     try:
-        meta = fetch_metadata(req.url)
-        return meta
+        resp = httpx.get(f"{SERVER_URL}/api/worker/poll", headers=headers, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("job")
     except Exception as e:
-        raise HTTPException(400, f"Failed to fetch metadata: {e}")
+        logger.warning("Poll failed: %s", e)
+    return None
 
-
-@app.post("/worker/jobs")
-def accept_job(req: JobRequest, _=Depends(verify_api_key)):
-    with _lock:
-        if _current_job is not None:
-            raise HTTPException(409, "Worker is busy")
-
-    logger.info("Accepted job %s: %s (%s)", req.job_id, req.url, req.mode)
-    thread = threading.Thread(target=_execute_job, args=(req.model_dump(),), daemon=True)
-    thread.start()
-    return {"accepted": True, "worker": WORKER_NAME}
-
-
-@app.post("/worker/jobs/{job_id}/cancel")
-def cancel_job(job_id: str, _=Depends(verify_api_key)):
-    global _cancel_requested
-    with _lock:
-        if not _current_job or _current_job.get("job_id") != job_id:
-            raise HTTPException(404, "Job not found on this worker")
-    _cancel_requested = True
-    return {"cancelled": True}
-
-
-# ---------------------------------------------------------------------------
-# Startup: retry undelivered completions
-# ---------------------------------------------------------------------------
 
 def _retry_undelivered():
     """On startup, check for manifest files from jobs that completed but whose
@@ -816,7 +772,6 @@ def _retry_undelivered():
                                        "/api/worker/complete", data, retries=3)
             if delivered:
                 manifest_path.unlink(missing_ok=True)
-                # Clean up output dir if it still exists
                 job_dir = WORK_DIR / data.get("job_id", "")
                 if job_dir.exists():
                     _cleanup_work_dir(job_dir)
@@ -827,11 +782,21 @@ def _retry_undelivered():
             logger.error("Error retrying manifest %s: %s", manifest_path.name, e)
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+def _run():
+    """Main loop: retry undelivered jobs, then poll for new work."""
+    logger.info("Worker '%s' started (device=%s, server=%s, poll=%ds)",
+                WORKER_NAME, DEVICE, SERVER_URL, POLL_INTERVAL)
+
+    _retry_undelivered()
+
+    while True:
+        job = _poll_for_job()
+        if job:
+            logger.info("Picked up job %s: %s (%s)", job["job_id"], job.get("url", ""), job.get("mode", ""))
+            _execute_job(job)
+        else:
+            time.sleep(POLL_INTERVAL)
+
 
 if __name__ == "__main__":
-    import uvicorn
-    logger.info("Starting worker '%s' on port %d (device=%s)", WORKER_NAME, WORKER_PORT, DEVICE)
-    uvicorn.run(app, host="0.0.0.0", port=WORKER_PORT)
+    _run()
