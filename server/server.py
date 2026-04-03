@@ -11,7 +11,6 @@ import re
 import secrets
 import threading
 import time
-import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -174,126 +173,6 @@ def _load_queue() -> None:
 
 
 
-# ---------------------------------------------------------------------------
-# Worker management
-# ---------------------------------------------------------------------------
-
-def _load_workers() -> list[dict]:
-    """Load configured workers from DB."""
-    return _db_config_get("workers", [])
-
-
-def _save_workers(workers: list[dict]) -> None:
-    _db_config_set("workers", workers)
-
-
-def _fetch_metadata_via_worker(url: str) -> dict | None:
-    """Ask an available worker to fetch YouTube metadata. Returns dict or None."""
-    workers = _load_workers()
-    for w in workers:
-        if not w.get("enabled", True):
-            continue
-        try:
-            headers = {}
-            if w.get("api_key"):
-                headers["Authorization"] = f"Bearer {w['api_key']}"
-            resp = httpx.post(
-                f"{w['url']}/worker/metadata",
-                json={"url": url}, headers=headers, timeout=30,
-            )
-            if resp.status_code == 200:
-                return resp.json()
-        except Exception:
-            continue
-    return None
-
-
-def _dispatch_next_jobs() -> None:
-    """Dispatch queued jobs to idle workers."""
-    workers = _load_workers()
-    if not workers:
-        return
-
-    with _lock:
-        queued_items = [item for item in _queue if item.get("status") == "queued"]
-        if not queued_items:
-            return
-
-    settings = _load_settings()
-
-    for item in queued_items:
-        # Find an idle, enabled worker (treat unknown/new workers as potentially idle)
-        idle_worker = None
-        for w in workers:
-            if not w.get("enabled", True):
-                continue
-            wid = w["id"]
-            state = _worker_states.get(wid, {})
-            status = state.get("status", "unknown")
-            if status in ("idle", "unknown"):
-                idle_worker = w
-                break
-
-        if not idle_worker:
-            break  # no idle workers available
-
-        job_id = item["id"]
-        callback_url = settings.get("base_url", BASE_URL)
-
-        payload = {
-            "job_id": job_id,
-            "url": item["url"],
-            "mode": item.get("mode", "karaoke"),
-            "languages": item.get("languages", []),
-            "callback_url": callback_url,
-            "callback_key": idle_worker.get("api_key", ""),
-            "r2_prefix": f"jobs/{job_id}",
-            "title": item.get("title"),
-            "channel": item.get("channel"),
-            "settings": {
-                "feature_lyrics_correction": settings.get("feature_lyrics_correction", True),
-                "feature_translation": settings.get("feature_translation", True),
-                "feature_analysis": settings.get("feature_analysis", True),
-                "demucs_model": settings.get("demucs_model", "htdemucs_ft"),
-                "transcription_engine": settings.get("transcription_engine", "whisper"),
-                "max_subtitle_languages": settings.get("max_subtitle_languages", 3),
-            },
-        }
-
-        try:
-            headers = {"Content-Type": "application/json"}
-            if idle_worker.get("api_key"):
-                headers["Authorization"] = f"Bearer {idle_worker['api_key']}"
-            resp = httpx.post(
-                f"{idle_worker['url']}/worker/jobs",
-                json=payload, headers=headers, timeout=10,
-            )
-            if resp.status_code == 200:
-                with _lock:
-                    item["status"] = "processing"
-                    item["worker_id"] = idle_worker["id"]
-                    item["dispatched_at"] = _now_iso()
-                    _active_jobs[job_id] = {
-                        "id": job_id,
-                        "status": "running",
-                        "step": 0,
-                        "step_name": "Starting",
-                        "step_progress": 0.0,
-                        "worker_id": idle_worker["id"],
-                        "worker_name": idle_worker.get("name", ""),
-                    }
-                _worker_states.setdefault(idle_worker["id"], {})["status"] = "busy"
-                _save_queue()
-                logger.info("Dispatched job %s to worker %s", job_id, idle_worker.get("name"))
-            elif resp.status_code == 409:
-                # Worker is busy — mark it so we skip it for next items
-                _worker_states.setdefault(idle_worker["id"], {})["status"] = "busy"
-                logger.info("Worker %s is busy", idle_worker.get("name"))
-            else:
-                logger.warning("Worker %s rejected job: %d %s",
-                               idle_worker.get("name"), resp.status_code, resp.text[:100])
-        except Exception as e:
-            logger.warning("Failed to dispatch to worker %s: %s", idle_worker.get("name"), e)
 
 
 def _on_job_completed(job_id: str, data: dict) -> None:
@@ -394,8 +273,7 @@ def _on_job_completed(job_id: str, data: dict) -> None:
         except Exception:
             pass
 
-    # Dispatch next queued jobs
-    _dispatch_next_jobs()
+    # Next job will be picked up when a worker polls
 
 
 MAX_RETRIES = 3
@@ -405,9 +283,15 @@ def _on_job_failed(job_id: str, error: str) -> None:
     with _lock:
         for item in _queue:
             if item.get("id") == job_id:
+                # If cancelled by user, just remove it
+                if item.get("status") == "cancelled":
+                    _queue[:] = [i for i in _queue if i["id"] != job_id]
+                    _active_jobs.pop(job_id, None)
+                    _save_queue()
+                    return
                 retries = item.get("retries", 0) + 1
                 item["retries"] = retries
-                item.pop("worker_id", None)
+                item.pop("worker_name", None)
                 if retries < MAX_RETRIES:
                     item["status"] = "queued"
                     item["last_error"] = error
@@ -421,114 +305,6 @@ def _on_job_failed(job_id: str, error: str) -> None:
                 break
         _active_jobs.pop(job_id, None)
     _save_queue()
-    _dispatch_next_jobs()
-
-
-def _worker_health_loop() -> None:
-    """Background thread that pings workers every 30 seconds."""
-    while True:
-        time.sleep(30)
-        try:
-            workers = _load_workers()
-            for w in workers:
-                if not w.get("enabled", True):
-                    continue
-                wid = w["id"]
-                try:
-                    headers = {}
-                    if w.get("api_key"):
-                        headers["Authorization"] = f"Bearer {w['api_key']}"
-                    resp = httpx.get(f"{w['url']}/worker/status", headers=headers, timeout=10)
-                    if resp.status_code == 200:
-                        status_data = resp.json()
-                        worker_current_job = status_data.get("current_job")
-                        worker_job_id = worker_current_job.get("job_id") if worker_current_job else None
-                        _worker_states[wid] = {
-                            "status": status_data.get("status", "idle"),
-                            "name": status_data.get("name", w.get("name", "")),
-                            "device": status_data.get("device", "unknown"),
-                            "current_job": worker_current_job,
-                            "last_seen": _now_iso(),
-                            "online": True,
-                        }
-                        # If worker is idle or working on a different job,
-                        # re-queue any items stuck as "processing" for this worker
-                        with _lock:
-                            for item in _queue:
-                                if (item.get("status") == "processing"
-                                        and item.get("worker_id") == wid
-                                        and item.get("id") != worker_job_id):
-                                    logger.info("Worker %s not processing job %s — re-queuing",
-                                                w.get("name"), item.get("id"))
-                                    item["status"] = "queued"
-                                    item.pop("worker_id", None)
-                                    _active_jobs.pop(item.get("id"), None)
-                    else:
-                        _worker_states[wid] = {
-                            **_worker_states.get(wid, {}),
-                            "online": False,
-                            "status": "offline",
-                            "last_error": f"HTTP {resp.status_code}",
-                        }
-                except Exception as e:
-                    _worker_states[wid] = {
-                        **_worker_states.get(wid, {}),
-                        "online": False,
-                        "status": "offline",
-                        "last_error": str(e),
-                    }
-
-            # Re-queue stuck processing jobs
-            now = datetime.now(timezone.utc)
-            changed = False
-            with _lock:
-                for item in _queue:
-                    if item.get("status") != "processing":
-                        continue
-                    wid = item.get("worker_id")
-
-                    # No worker assigned — shouldn't happen but recover
-                    if not wid:
-                        item["status"] = "queued"
-                        changed = True
-                        continue
-
-                    state = _worker_states.get(wid, {})
-
-                    # Worker offline > 5 min — re-queue
-                    if not state.get("online"):
-                        last_seen = state.get("last_seen")
-                        if last_seen:
-                            ls = datetime.fromisoformat(last_seen)
-                            if (now - ls).total_seconds() > 300:
-                                logger.warning("Worker %s offline > 5min, re-queuing job %s",
-                                               wid, item.get("id"))
-                                item["status"] = "queued"
-                                item.pop("worker_id", None)
-                                changed = True
-                        continue
-
-                    # Worker online but job dispatched > 30 min ago — stale
-                    dispatched = item.get("dispatched_at")
-                    if dispatched:
-                        dt = datetime.fromisoformat(dispatched)
-                        if (now - dt).total_seconds() > 1800:
-                            # Check if worker still reports this job
-                            worker_job = state.get("current_job")
-                            if not worker_job or worker_job.get("job_id") != item.get("id"):
-                                logger.warning("Job %s stale (dispatched >30min, worker not processing), re-queuing",
-                                               item.get("id"))
-                                item["status"] = "queued"
-                                item.pop("worker_id", None)
-                                changed = True
-
-            if changed:
-                _save_queue()
-
-            # Try dispatching if we have queued items and idle workers
-            _dispatch_next_jobs()
-        except Exception as e:
-            logger.error("Worker health check error: %s", e)
 
 VALID_MODES = ("karaoke", "subtitled", "both")
 
@@ -575,18 +351,93 @@ def _now_iso() -> str:
 # Worker callback endpoints (called by workers to report progress/completion)
 # ---------------------------------------------------------------------------
 
+WORKER_API_KEY = os.getenv("WORKER_API_KEY", "")
+
+
 def _verify_worker_key(request) -> bool:
-    """Check if the request comes from a configured worker."""
+    """Check if the request has a valid worker API key."""
+    if not WORKER_API_KEY:
+        return True  # no auth configured
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
-        key = auth[7:]
-    else:
-        key = ""
-    workers = _load_workers()
-    if not workers:
-        return False
-    # If the key matches any worker's api_key (including empty matching empty)
-    return any(w.get("api_key", "") == key for w in workers)
+        return auth[7:] == WORKER_API_KEY
+    return False
+
+
+def _worker_name_from_request(request) -> str:
+    """Extract worker name from X-Worker-Name header."""
+    return request.headers.get("X-Worker-Name", "unknown")
+
+
+@app.get("/api/worker/poll")
+async def worker_poll(request: Request):
+    """Worker polls for the next available job. Returns job or empty."""
+    if not _verify_worker_key(request):
+        raise HTTPException(401, "Invalid worker key")
+
+    worker_name = _worker_name_from_request(request)
+
+    # Update worker state (self-registration via polling)
+    _worker_states[worker_name] = {
+        "status": "idle",
+        "name": worker_name,
+        "last_seen": _now_iso(),
+        "online": True,
+    }
+
+    settings = _load_settings()
+
+    with _lock:
+        # Find next queued item
+        next_item = None
+        for item in _queue:
+            if item.get("status") == "queued":
+                next_item = item
+                break
+        if not next_item:
+            return {"job": None}
+
+        # Claim it
+        job_id = next_item["id"]
+        next_item["status"] = "processing"
+        next_item["worker_name"] = worker_name
+        next_item["dispatched_at"] = _now_iso()
+        _active_jobs[job_id] = {
+            "id": job_id,
+            "status": "running",
+            "step": 0,
+            "step_name": "Starting",
+            "step_progress": 0.0,
+            "worker_name": worker_name,
+        }
+        _worker_states[worker_name]["status"] = "busy"
+
+    _save_queue()
+
+    callback_url = settings.get("base_url", BASE_URL)
+
+    job = {
+        "job_id": job_id,
+        "url": next_item["url"],
+        "mode": next_item.get("mode", "karaoke"),
+        "languages": next_item.get("languages", []),
+        "callback_url": callback_url,
+        "callback_key": WORKER_API_KEY,
+        "r2_prefix": f"jobs/{job_id}",
+        "title": next_item.get("title"),
+        "channel": next_item.get("channel"),
+        "settings": {
+            "feature_lyrics_correction": settings.get("feature_lyrics_correction", True),
+            "feature_translation": settings.get("feature_translation", True),
+            "feature_analysis": settings.get("feature_analysis", True),
+            "demucs_model": settings.get("demucs_model", "htdemucs_ft"),
+            "transcription_engine": settings.get("transcription_engine", "whisper"),
+            "max_subtitle_languages": settings.get("max_subtitle_languages", 3),
+        },
+    }
+
+    logger.info("Dispatched job %s to worker %s", job_id, worker_name)
+    return {"job": job}
 
 
 @app.post("/api/worker/progress")
@@ -598,12 +449,42 @@ async def worker_progress(request: Request):
     job_id = data.get("job_id")
     if not job_id:
         raise HTTPException(400, "job_id required")
+
+    worker_name = _worker_name_from_request(request)
+    _worker_states[worker_name] = {
+        "status": "busy",
+        "name": worker_name,
+        "last_seen": _now_iso(),
+        "online": True,
+    }
+
     with _lock:
         if job_id in _active_jobs:
             _active_jobs[job_id].update(data)
         else:
             _active_jobs[job_id] = data
-    return {"ok": True}
+
+        # Update queue item metadata if worker reports title/thumbnail
+        if data.get("title") or data.get("thumbnail") or data.get("channel"):
+            for item in _queue:
+                if item.get("id") == job_id:
+                    if data.get("title"):
+                        item["title"] = data["title"]
+                    if data.get("thumbnail"):
+                        item["thumbnail"] = data["thumbnail"]
+                    if data.get("channel"):
+                        item["channel"] = data["channel"]
+                    break
+            _save_queue()
+
+        # Check if job was cancelled while worker was processing
+        cancelled = False
+        for item in _queue:
+            if item.get("id") == job_id and item.get("status") == "cancelled":
+                cancelled = True
+                break
+
+    return {"ok": True, "cancel": cancelled}
 
 
 @app.post("/api/worker/complete")
@@ -774,7 +655,7 @@ def admin_toggle_worker(worker_id: str, admin: User = Depends(require_admin)):
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 def _startup() -> None:
-    """On startup: load queue, reset stale jobs, start worker health monitor."""
+    """On startup: load queue, reset stale jobs."""
     _load_queue()
 
     # Reset stale items on startup (server restarted, workers may have changed)
@@ -782,7 +663,7 @@ def _startup() -> None:
     for item in _queue:
         if item.get("status") == "processing":
             item["status"] = "queued"
-            item.pop("worker_id", None)
+            item.pop("worker_name", None)
             changed = True
         elif item.get("status") == "failed" and item.get("retries", 0) < MAX_RETRIES:
             item["status"] = "queued"
@@ -790,13 +671,6 @@ def _startup() -> None:
             changed = True
     if changed:
         _save_queue()
-
-    # Start worker health monitoring thread
-    health_thread = threading.Thread(target=_worker_health_loop, daemon=True)
-    health_thread.start()
-
-    # Try dispatching queued jobs to any available workers
-    _dispatch_next_jobs()
 
 
 # ---------------------------------------------------------------------------
@@ -1034,15 +908,6 @@ class JobRequest(BaseModel):
     languages: list[str] = []      # Whisper language codes (e.g. ["en", "es"]), max 3
 
 
-def _slugify(text: str, max_len: int = 60) -> str:
-    """Convert text to a filesystem-safe slug."""
-    # Normalize unicode and convert to ASCII
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9\s-]", "", text)
-    text = re.sub(r"[\s-]+", "-", text).strip("-")
-    return text[:max_len] or "untitled"
-
 
 @app.post("/api/jobs")
 def create_job(req: JobRequest, user: User | None = Depends(get_optional_user)):
@@ -1060,23 +925,14 @@ def create_job(req: JobRequest, user: User | None = Depends(get_optional_user)):
     if mode not in ("subtitled", "both"):
         languages = []
 
-    # Try to get metadata from a worker (non-blocking, best-effort)
-    meta = _fetch_metadata_via_worker(req.url) or {}
-    title = meta.get("title", "")
-    slug = _slugify(title) if title else "job"
-    job_id = f"{slug}-{secrets.token_hex(4)}"
+    job_id = f"job-{secrets.token_hex(4)}"
 
     item = {
         "id": job_id,
         "url": req.url,
         "mode": mode,
         "languages": languages,
-        "title": title or req.url,
-        "thumbnail": meta.get("thumbnail"),
-        "channel": meta.get("channel"),
-        "upload_date": meta.get("upload_date"),
-        "categories": meta.get("categories", []),
-        "tags": meta.get("tags", []),
+        "title": req.url,
         "added_by": user.name.split()[0] if user and user.name else None,
         "added_by_id": str(user.id) if user else None,
         "status": "queued",
@@ -1084,7 +940,6 @@ def create_job(req: JobRequest, user: User | None = Depends(get_optional_user)):
     with _lock:
         _queue.insert(0, item)  # add to front
     _save_queue()
-    _dispatch_next_jobs()
     return {"job": item}
 
 
@@ -1150,23 +1005,14 @@ def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_use
         if mode in ("subtitled", "both") and user_today_subtitled >= p.max_subtitled_per_day:
             raise HTTPException(429, f"Daily subtitled limit reached ({p.max_subtitled_per_day})")
 
-    # Fetch metadata via worker (best-effort)
-    meta = _fetch_metadata_via_worker(req.url) or {}
-    title = meta.get("title", "")
-    slug = _slugify(title) if title else "job"
-    item_id = f"{slug}-{secrets.token_hex(4)}"
+    item_id = f"job-{secrets.token_hex(4)}"
 
     item = {
         "id": item_id,
         "url": req.url,
         "mode": mode,
         "languages": languages,
-        "title": title or req.url,
-        "thumbnail": meta.get("thumbnail"),
-        "channel": meta.get("channel"),
-        "upload_date": meta.get("upload_date"),
-        "categories": meta.get("categories", []),
-        "tags": meta.get("tags", []),
+        "title": req.url,
         "status": "queued",
         "added_by": user.name.split()[0] if user and user.name else "Anonymous",
         "added_by_id": str(user.id) if user else None,
@@ -1175,10 +1021,7 @@ def add_to_queue(req: QueueRequest, user: User | None = Depends(get_optional_use
     with _lock:
         _queue.append(item)
     _save_queue()
-    _log_activity(db, user, "queue", {"title": title, "url": req.url, "mode": mode})
-
-    # Auto-start if nothing is running
-    _dispatch_next_jobs()
+    _log_activity(db, user, "queue", {"url": req.url, "mode": mode})
 
     return {"item": item, "queue": _queue}
 
@@ -1212,31 +1055,16 @@ def get_queue():
 
 @app.delete("/api/queue/{item_id}")
 def remove_from_queue(item_id: str):
-    """Remove an item from the queue. If processing on a worker, send cancel."""
+    """Remove an item from the queue. If processing, mark as cancelled."""
     with _lock:
         item = next((i for i in _queue if i["id"] == item_id), None)
         if not item:
             raise HTTPException(404, "Item not found in queue")
-        is_processing = item.get("status") == "processing"
-        worker_id = item.get("worker_id")
-
-    # If being processed by a worker, send cancel request
-    if is_processing and worker_id:
-        workers = _load_workers()
-        worker = next((w for w in workers if w["id"] == worker_id), None)
-        if worker:
-            try:
-                headers = {}
-                if worker.get("api_key"):
-                    headers["Authorization"] = f"Bearer {worker['api_key']}"
-                httpx.post(f"{worker['url']}/worker/jobs/{item_id}/cancel",
-                           headers=headers, timeout=5)
-            except Exception:
-                pass
-
-    # Remove from queue and active jobs
-    with _lock:
-        _queue[:] = [i for i in _queue if i["id"] != item_id]
+        # If processing, mark cancelled — worker will see this on next progress callback
+        if item.get("status") == "processing":
+            item["status"] = "cancelled"
+        else:
+            _queue[:] = [i for i in _queue if i["id"] != item_id]
         _active_jobs.pop(item_id, None)
     _save_queue()
 
@@ -1298,7 +1126,6 @@ def reorder_queue(req: ReorderRequest):
 @app.post("/api/queue/start")
 def start_queue():
     """Manually trigger processing of the next queued item."""
-    _dispatch_next_jobs()
     return {"started": True, "queue": _queue}
 
 
@@ -1309,25 +1136,8 @@ def pause_queue_item(item_id: str):
         item = next((i for i in _queue if i["id"] == item_id), None)
         if not item or item.get("status") != "processing":
             raise HTTPException(400, "Item is not currently processing")
-        worker_id = item.get("worker_id")
-
-    # Send cancel to worker, then re-queue
-    if worker_id:
-        workers = _load_workers()
-        worker = next((w for w in workers if w["id"] == worker_id), None)
-        if worker:
-            try:
-                headers = {}
-                if worker.get("api_key"):
-                    headers["Authorization"] = f"Bearer {worker['api_key']}"
-                httpx.post(f"{worker['url']}/worker/jobs/{item_id}/cancel",
-                           headers=headers, timeout=5)
-            except Exception:
-                pass
-
-    with _lock:
-        item["status"] = "queued"
-        item.pop("worker_id", None)
+        # Mark cancelled — worker will see on next progress callback
+        item["status"] = "cancelled"
         _active_jobs.pop(item_id, None)
     _save_queue()
     return {"paused": True}
@@ -1344,7 +1154,6 @@ def resume_queue_item(item_id: str):
         item.pop("worker_id", None)
         item.pop("error", None)
     _save_queue()
-    _dispatch_next_jobs()
     return {"resumed": True}
 
 
@@ -1361,7 +1170,6 @@ def resume_job(job_id: str):
         else:
             raise HTTPException(404, "Job not found in queue")
     _save_queue()
-    _dispatch_next_jobs()
     return {"resumed": True}
 
 
@@ -2213,12 +2021,6 @@ def create_wishlist_item(req: WishlistCreateRequest,
     note = (req.note or "").strip() or None
     thumbnail = None
 
-    if url:
-        meta = _fetch_metadata_via_worker(url) or {}
-        title = title or meta.get("title", "")
-        artist = artist or meta.get("channel")
-        thumbnail = meta.get("thumbnail")
-
     if not title:
         raise HTTPException(400, "Title is required")
 
@@ -2264,7 +2066,12 @@ def toggle_wishlist_vote(item_id: str, user: User = Depends(get_current_user),
 def delete_wishlist_item(item_id: str, user: User = Depends(get_current_user),
                          db: Session = Depends(get_db)):
     """Delete own wishlist request. Admins can delete any."""
-    item = db.query(WishlistItem).filter(WishlistItem.id == item_id).first()
+    import uuid as _uuid
+    try:
+        _uid = _uuid.UUID(item_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid item ID")
+    item = db.query(WishlistItem).filter(WishlistItem.id == _uid).first()
     if not item:
         raise HTTPException(404, "Wishlist item not found")
     if item.user_id != user.id and not is_admin(user):
@@ -2276,12 +2083,8 @@ def delete_wishlist_item(item_id: str, user: User = Depends(get_current_user),
 
 @app.get("/api/wishlist/preview")
 def preview_wishlist_url(url: str, user: User = Depends(get_current_user)):
-    """Fetch YouTube metadata for preview in request form (via worker)."""
-    meta = _fetch_metadata_via_worker(url)
-    if not meta:
-        raise HTTPException(400, "Could not fetch metadata — no workers available")
-    return {"title": meta.get("title"), "channel": meta.get("channel"),
-            "thumbnail": meta.get("thumbnail")}
+    """No-op — metadata is no longer fetched server-side."""
+    return {"title": "", "channel": "", "thumbnail": ""}
 
 
 # --- Admin Wishlist ---
