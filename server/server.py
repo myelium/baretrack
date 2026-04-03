@@ -177,6 +177,12 @@ def _notify_admin(event_key: str, subject: str, body: str) -> None:
 
 app = FastAPI()
 
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 # ---------------------------------------------------------------------------
 # Global job state & worker management
 # ---------------------------------------------------------------------------
@@ -226,6 +232,17 @@ def _load_queue() -> None:
     """Load queue from DB."""
     global _queue
     _queue = _db_config_get("queue", [])
+
+
+def _save_worker_states() -> None:
+    """Persist worker states to DB."""
+    _db_config_set("worker_states", _worker_states)
+
+
+def _load_worker_states() -> None:
+    """Load worker states from DB."""
+    global _worker_states
+    _worker_states = _db_config_get("worker_states", {})
 
 
 
@@ -439,6 +456,7 @@ async def worker_poll(request: Request):
         "last_seen": _now_iso(),
         "online": True,
     }
+    _save_worker_states()
 
     settings = _load_settings()
 
@@ -474,6 +492,7 @@ async def worker_poll(request: Request):
         _worker_states[worker_name]["status"] = "busy"
 
     _save_queue()
+    _save_worker_states()
 
     callback_url = settings.get("base_url", BASE_URL)
 
@@ -541,6 +560,7 @@ async def worker_progress(request: Request):
         "last_seen": _now_iso(),
         "online": True,
     }
+    _save_worker_states()
 
     with _lock:
         if job_id in _active_jobs:
@@ -663,8 +683,23 @@ def admin_list_workers(admin: User = Depends(require_admin)):
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 def _startup() -> None:
-    """On startup: load queue, reset stale jobs."""
+    """On startup: load queue, rebuild in-memory state, reset stale jobs."""
     _load_queue()
+    _load_worker_states()
+
+    # Rebuild _active_jobs from queue items still marked as processing
+    for item in _queue:
+        if item.get("status") == "processing":
+            job_id = item.get("id")
+            if job_id:
+                _active_jobs[job_id] = {
+                    "id": job_id,
+                    "status": "running",
+                    "step": item.get("step", 0),
+                    "step_name": item.get("step_name", "Resuming"),
+                    "step_progress": item.get("step_progress", 0.0),
+                    "worker_name": item.get("worker_name", "unknown"),
+                }
 
     # Reset retryable failed items on startup
     # Processing items are left as-is — the worker may still be running
