@@ -118,6 +118,63 @@ def send_invite_email(to_email: str, inviter_name: str, token: str) -> bool:
         logger.error("Failed to send invite email to %s: %s", to_email, e)
         return False
 
+
+def _notification_email_html(subject: str, body: str) -> str:
+    """Build a styled HTML email for admin notifications."""
+    return f"""\
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#0e0c09;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0e0c09;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;">
+        <tr><td align="center" style="padding-bottom:24px;">
+          <img src="{BASE_URL}/static/logo.png" alt="Baretraks" width="140" style="display:block;margin:0 auto;" />
+        </td></tr>
+        <tr><td style="background:#1a1612;border-radius:12px;padding:28px 24px;border:1px solid #2a2420;">
+          <p style="margin:0 0 12px;font-size:15px;color:#b48c3c;font-weight:600;">{subject}</p>
+          <p style="margin:0;font-size:14px;color:#e8e0d4;line-height:1.6;">{body}</p>
+        </td></tr>
+        <tr><td align="center" style="padding-top:16px;">
+          <p style="margin:0;font-size:11px;color:#3a3530;">
+            Baretraks admin notification &mdash; <a href="{BASE_URL}" style="color:#b48c3c;text-decoration:underline;">Open app</a>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+def _notify_admin(event_key: str, subject: str, body: str) -> None:
+    """Send an admin notification email if the event is enabled in settings.
+    Runs in a background thread to avoid blocking the request."""
+    if not RESEND_API_KEY:
+        return
+    settings = _load_settings()
+    if not settings.get(event_key):
+        return
+    to_email = settings.get("notify_email", "").strip()
+    if not to_email:
+        return
+    import threading
+
+    def _send():
+        try:
+            import resend
+            resend.api_key = RESEND_API_KEY
+            resend.Emails.send({
+                "from": EMAIL_FROM,
+                "to": [to_email],
+                "subject": f"[Baretraks] {subject}",
+                "html": _notification_email_html(subject, body),
+            })
+        except Exception as e:
+            logger.error("Failed to send admin notification: %s", e)
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 app = FastAPI()
 
 # ---------------------------------------------------------------------------
@@ -264,6 +321,10 @@ def _on_job_completed(job_id: str, data: dict) -> None:
         except Exception:
             pass
 
+    title = (queue_item or {}).get("title") or job_id
+    _notify_admin("notify_production_complete", "Production complete",
+                  f"<strong>{title}</strong> has finished production and is now in the Jukebox.")
+
     # Next job will be picked up when a worker polls
 
 
@@ -293,6 +354,9 @@ def _on_job_failed(job_id: str, error: str) -> None:
                     item["error"] = error
                     logger.warning("Job %s failed after %d attempts: %s",
                                    job_id, retries, error[:100])
+                    title = item.get("title") or job_id
+                    _notify_admin("notify_production_failed", "Production failed",
+                                  f"<strong>{title}</strong> failed after {retries} attempts.<br>Error: {error[:200]}")
                 break
         _active_jobs.pop(job_id, None)
     _save_queue()
@@ -617,6 +681,35 @@ def _startup() -> None:
     if changed:
         _save_queue()
 
+    # One-time schema fix: widen picture_url for Google OAuth URLs
+    try:
+        from sqlalchemy import text as _text
+        _db = get_session()
+        _db.execute(_text("ALTER TABLE users ALTER COLUMN picture_url TYPE VARCHAR(2048)"))
+        _db.commit()
+        _db.close()
+    except Exception:
+        pass  # already done or not needed
+
+    # Clean up orphaned invitations (accepted by users who were later deleted)
+    try:
+        db = get_session()
+        from sqlalchemy import and_
+        orphaned = db.query(Invitation).filter(
+            Invitation.status == "accepted",
+            Invitation.accepted_by_id.isnot(None),
+            ~Invitation.accepted_by_id.in_(db.query(User.id))
+        ).all()
+        for inv in orphaned:
+            inv.status = "pending"
+            inv.accepted_by_id = None
+            logger.info("Reset orphaned invitation %s (email: %s)", inv.id, inv.email)
+        if orphaned:
+            db.commit()
+        db.close()
+    except Exception as e:
+        logger.warning("Failed to clean orphaned invitations: %s", e)
+
 
 # ---------------------------------------------------------------------------
 # Auth API
@@ -627,6 +720,7 @@ class RegisterRequest(BaseModel):
     name: str
     password: str
     invite_token: str
+    language: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -675,9 +769,13 @@ def register(req: RegisterRequest, response: Response, db: Session = Depends(get
         db, email=req.email, name=req.name, password=req.password,
         invited_by_id=str(invitation.inviter_id),
     )
+    if req.language:
+        user.preferred_language = req.language.split("-")[0]
     invitation.status = "accepted"
     invitation.accepted_by_id = user.id
     db.commit()
+    _notify_admin("notify_new_user", "New user joined",
+                  f"{user.name} ({user.email}) accepted an invitation and joined Baretraks.")
     _set_auth_cookie(response, user)
     return {"user": user.to_dict()}
 
@@ -703,7 +801,7 @@ def google_login(invite: str | None = None):
     client_id = os.getenv("GOOGLE_CLIENT_ID", "")
     if not client_id:
         raise HTTPException(501, "Google OAuth not configured")
-    redirect_uri = "/api/auth/google/callback"
+    redirect_uri = f"{BASE_URL}/api/auth/google/callback"
     scope = "openid email profile"
     state = quote(invite or "", safe="")
     url = (
@@ -732,7 +830,7 @@ def google_callback(code: str, state: str = "", db: Session = Depends(get_db)):
         "code": code,
         "client_id": client_id,
         "client_secret": client_secret,
-        "redirect_uri": "/api/auth/google/callback",
+        "redirect_uri": f"{BASE_URL}/api/auth/google/callback",
         "grant_type": "authorization_code",
     })
     if token_resp.status_code != 200:
@@ -747,13 +845,14 @@ def google_callback(code: str, state: str = "", db: Session = Depends(get_db)):
     info = userinfo_resp.json()
 
     # Find or create user
+    picture = (info.get("picture") or "")[:2048] or None
     user = db.query(User).filter(User.google_id == info["id"]).first()
     if not user:
         user = db.query(User).filter(User.email == info["email"].lower()).first()
         if user:
             # Existing user — link Google account, no invite needed
             user.google_id = info["id"]
-            user.picture_url = info.get("picture")
+            user.picture_url = picture
         else:
             # New user — require valid invite token
             if not invite_token:
@@ -765,9 +864,11 @@ def google_callback(code: str, state: str = "", db: Session = Depends(get_db)):
                 return RedirectResponse("/login?error=email_mismatch")
             user = create_user_with_permissions(
                 db, email=info["email"], name=info.get("name", ""),
-                google_id=info["id"], picture_url=info.get("picture"),
+                google_id=info["id"], picture_url=picture,
                 invited_by_id=str(inv.inviter_id),
             )
+            if info.get("locale"):
+                user.preferred_language = info["locale"].split("-")[0]
             inv.status = "accepted"
             inv.accepted_by_id = user.id
     from datetime import datetime, timezone as tz
@@ -1276,12 +1377,21 @@ _DEFAULT_SETTINGS = {
     "max_disk_space_mb": 0,
     "demucs_model": "htdemucs_ft",
     "max_subtitle_languages": 3,
+    # Admin email notifications
+    "notify_email": "",
+    "notify_new_user": False,
+    "notify_song_request": False,
+    "notify_production_complete": False,
+    "notify_production_failed": True,
+    "notify_new_comment": False,
 }
 
 
 def _load_settings() -> dict:
     """Load admin settings from DB."""
     stored = _db_config_get("settings", {})
+    # Filter out None values so defaults apply correctly
+    stored = {k: v for k, v in stored.items() if v is not None}
     return {**_DEFAULT_SETTINGS, **stored}
 
 
@@ -1743,8 +1853,26 @@ def admin_delete_user(user_id: str, admin: User = Depends(require_admin),
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(404, "User not found")
-    db.delete(target)
-    db.commit()
+    try:
+        # Reset invitations that were accepted by this user back to pending
+        db.query(Invitation).filter(Invitation.accepted_by_id == target.id).update(
+            {"accepted_by_id": None, "status": "pending"}, synchronize_session=False)
+        db.query(User).filter(User.invited_by_id == target.id).update(
+            {"invited_by_id": None}, synchronize_session=False)
+        # Explicit cleanup for tables whose DB constraints may not have CASCADE
+        db.query(ActivityLog).filter(ActivityLog.user_id == target.id).delete(synchronize_session=False)
+        db.query(Comment).filter(Comment.user_id == target.id).delete(synchronize_session=False)
+        db.query(Vote).filter(Vote.user_id == target.id).delete(synchronize_session=False)
+        db.query(WishlistVote).filter(WishlistVote.user_id == target.id).delete(synchronize_session=False)
+        db.query(WishlistItem).filter(WishlistItem.user_id == target.id).delete(synchronize_session=False)
+        db.query(Invitation).filter(Invitation.inviter_id == target.id).delete(synchronize_session=False)
+        db.query(Playlist).filter(Playlist.user_id == target.id).delete(synchronize_session=False)
+        db.delete(target)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("Failed to delete user %s: %s", user_id, e)
+        raise HTTPException(500, f"Failed to delete user: {e}")
     return {"deleted": True}
 
 
@@ -1985,6 +2113,10 @@ def create_wishlist_item(req: WishlistCreateRequest,
     db.add(item)
     db.commit()
     db.refresh(item)
+    _notify_admin("notify_song_request", "New song request",
+                  f"{user.name} requested <strong>{title}</strong>"
+                  + (f" by {artist}" if artist else "")
+                  + (f"<br>Note: \"{note}\"" if note else ""))
     d = item.to_dict()
     d["vote_count"] = 0
     d["user_voted"] = False
@@ -2272,6 +2404,11 @@ def post_comment(job_id: str, req: CommentRequest, user: User = Depends(get_curr
     db.commit()
     db.refresh(comment)
     _log_activity(db, user, "comment", {"job_id": job_id, "text": text[:100]})
+    # Look up song title for the notification
+    _meta = db.query(LibraryItem).filter(LibraryItem.job_id == job_id).first()
+    _song_title = _meta.title if _meta else job_id
+    _notify_admin("notify_new_comment", "New comment",
+                  f"{user.name} commented on <strong>{_song_title}</strong>:<br>\"{text[:200]}\"")
     return {"comment": comment.to_dict()}
 
 

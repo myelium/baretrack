@@ -515,7 +515,7 @@ async function handleSubmit(e) {
       const resp = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, name, password, invite_token: inviteToken }),
+        body: JSON.stringify({ email, name, password, invite_token: inviteToken, language: navigator.language }),
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));

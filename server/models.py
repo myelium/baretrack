@@ -23,13 +23,13 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    picture_url: Mapped[str | None] = mapped_column(String(512))
+    picture_url: Mapped[str | None] = mapped_column(String(2048))
     password_hash: Mapped[str | None] = mapped_column(String(255))  # null for OAuth-only
     google_id: Mapped[str | None] = mapped_column(String(255), unique=True)
     role: Mapped[str] = mapped_column(String(20), default="user")  # "user" or "admin"
     theme: Mapped[str] = mapped_column(String(20), default="retro")  # "retro", "spotify", "disco"
     dark_mode: Mapped[str] = mapped_column(String(20), default="dark")  # "dark", "day", "night"
-    preferred_language: Mapped[str | None] = mapped_column(String(10))  # e.g. "en", "vi", "zh"
+    preferred_language: Mapped[str] = mapped_column(String(10), default="en")  # e.g. "en", "vi", "zh"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     invited_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

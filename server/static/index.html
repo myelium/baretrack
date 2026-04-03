@@ -2186,7 +2186,7 @@
   }
   .admin-tab:hover { color: var(--text); }
   .admin-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .admin-tab-content { max-height: calc(80vh - 140px); overflow-y: auto; padding: 4px 0; }
+  .admin-tab-content { min-height: 420px; max-height: calc(80vh - 140px); overflow-y: auto; padding: 4px 0; }
   .admin-stats-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -2458,9 +2458,11 @@
     <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0;">
       <button class="admin-tab active" data-tab="overview" onclick="switchAdminTab('overview')">Overview</button>
       <button class="admin-tab" data-tab="users" onclick="switchAdminTab('users')">Users</button>
-      <button class="admin-tab" data-tab="content" onclick="switchAdminTab('content')">Content</button>
+      <button class="admin-tab" data-tab="content" onclick="switchAdminTab('content')">Comments</button>
       <button class="admin-tab" data-tab="feedback" onclick="switchAdminTab('feedback')">Feedback</button>
-      <button class="admin-tab" data-tab="system" onclick="switchAdminTab('system')">System</button>
+      <button class="admin-tab" data-tab="settings" onclick="switchAdminTab('settings')">System Settings</button>
+      <button class="admin-tab" data-tab="workers" onclick="switchAdminTab('workers')">Workers Mgmt</button>
+      <button class="admin-tab" data-tab="ai" onclick="switchAdminTab('ai')">AI Mgmt</button>
     </div>
 
     <!-- Tab Content -->
@@ -2468,7 +2470,9 @@
     <div id="admin-tab-users" class="admin-tab-content" style="display:none;"></div>
     <div id="admin-tab-content" class="admin-tab-content" style="display:none;"></div>
     <div id="admin-tab-feedback" class="admin-tab-content" style="display:none;"></div>
-    <div id="admin-tab-system" class="admin-tab-content" style="display:none;"></div>
+    <div id="admin-tab-settings" class="admin-tab-content" style="display:none;"></div>
+    <div id="admin-tab-workers" class="admin-tab-content" style="display:none;"></div>
+    <div id="admin-tab-ai" class="admin-tab-content" style="display:none;"></div>
   </div>
 </div>
 
@@ -5226,9 +5230,7 @@ async function submitFeedback(e) {
 }
 
 let _adminFeedbackFilter = 'all';
-let _adminContentSubTab = 'comments';
 let _adminUsersSubTab = 'users';
-let _adminSystemSubTab = 'workers';
 
 async function openAdminPanel() {
   document.getElementById('admin-overlay').classList.remove('hidden');
@@ -5248,13 +5250,13 @@ function switchAdminTab(tab) {
   else if (tab === 'users') loadAdminUsersTab();
   else if (tab === 'content') loadAdminContentTab();
   else if (tab === 'feedback') loadAdminFeedback();
-  else if (tab === 'system') loadAdminSystemTab();
+  else if (tab === 'settings') loadAdminSettings();
+  else if (tab === 'workers') loadAdminWorkers();
+  else if (tab === 'ai') loadAdminPrompts();
 }
 
 function switchAdminSubTab(parentTab, subTab) {
   if (parentTab === 'users') { _adminUsersSubTab = subTab; loadAdminUsersTab(); }
-  else if (parentTab === 'content') { _adminContentSubTab = subTab; loadAdminContentTab(); }
-  else if (parentTab === 'system') { _adminSystemSubTab = subTab; loadAdminSystemTab(); }
 }
 
 async function loadAdminOverview() {
@@ -5336,31 +5338,10 @@ function loadAdminUsersTab() {
 
 function loadAdminContentTab() {
   const container = document.getElementById('admin-tab-content');
-  const sub = _adminContentSubTab;
-  container.innerHTML = `
-    <div class="admin-sub-tabs">
-      <button class="admin-sub-tab${sub === 'comments' ? ' active' : ''}" onclick="switchAdminSubTab('content','comments')">Comments</button>
-      <button class="admin-sub-tab${sub === 'wishlist' ? ' active' : ''}" onclick="switchAdminSubTab('content','wishlist')">Requests</button>
-    </div>
-    <div id="admin-content-sub-content"></div>`;
-  if (sub === 'comments') loadAdminComments();
-  else loadAdminWishlist();
+  container.innerHTML = `<div id="admin-content-sub-content"></div>`;
+  loadAdminComments();
 }
 
-function loadAdminSystemTab() {
-  const container = document.getElementById('admin-tab-system');
-  const sub = _adminSystemSubTab;
-  container.innerHTML = `
-    <div class="admin-sub-tabs">
-      <button class="admin-sub-tab${sub === 'workers' ? ' active' : ''}" onclick="switchAdminSubTab('system','workers')">Workers</button>
-      <button class="admin-sub-tab${sub === 'prompts' ? ' active' : ''}" onclick="switchAdminSubTab('system','prompts')">Prompts</button>
-      <button class="admin-sub-tab${sub === 'settings' ? ' active' : ''}" onclick="switchAdminSubTab('system','settings')">Settings</button>
-    </div>
-    <div id="admin-system-sub-content"></div>`;
-  if (sub === 'workers') loadAdminWorkers();
-  else if (sub === 'prompts') loadAdminPrompts();
-  else loadAdminSettings();
-}
 
 async function loadAdminUsers() {
   const container = document.getElementById('admin-users-sub-content') || document.getElementById('admin-tab-users');
@@ -5786,7 +5767,7 @@ function copyInviteLink(btn, link) {
 }
 
 async function loadAdminPrompts() {
-  const container = document.getElementById('admin-system-sub-content') || document.getElementById('admin-tab-system');
+  const container = document.getElementById('admin-tab-ai');
   container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Loading...</p>';
   try {
     const resp = await fetch('/api/admin/prompts');
@@ -5841,89 +5822,9 @@ function resetAdminPrompt() {
   saveAdminPrompt();
 }
 
-let _adminWishlistFilter = 'all';
-
-async function loadAdminWishlist() {
-  const container = document.getElementById('admin-content-sub-content') || document.getElementById('admin-tab-content');
-  container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Loading...</p>';
-  try {
-    const resp = await fetch('/api/admin/wishlist');
-    if (!resp.ok) throw new Error();
-    const data = await resp.json();
-    const items = data.items || [];
-    const filters = ['all', 'open', 'queued', 'fulfilled'];
-    const filtered = items.filter(i => _adminWishlistFilter === 'all' || i.status === _adminWishlistFilter);
-    container.innerHTML = `
-      <div style="display:flex;gap:6px;padding:8px 12px;">
-        ${filters.map(f => `<button class="admin-filter-btn${_adminWishlistFilter === f ? ' active' : ''}" onclick="_adminWishlistFilter='${f}'; loadAdminWishlist()">${f.charAt(0).toUpperCase() + f.slice(1)}</button>`).join('')}
-      </div>
-      <div class="admin-section">
-        ${filtered.map(item => `
-          <div style="border-bottom:1px solid var(--border-light);">
-            <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;">
-              ${item.thumbnail ? `<img src="${escapeHtml(item.thumbnail)}" style="width:60px;height:40px;object-fit:cover;border-radius:4px;flex-shrink:0;" />` : `<div style="width:60px;height:40px;background:var(--bg-base);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-muted);">&#9835;</div>`}
-              <div style="flex:1;min-width:0;">
-                <div style="font-size:0.85rem;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.title)}</div>
-                <div style="font-size:0.7rem;color:var(--text-dim);">${escapeHtml(item.artist || '')} &mdash; by ${escapeHtml(item.user_name || 'Anon')} &mdash; ${item.vote_count} vote${item.vote_count !== 1 ? 's' : ''}</div>
-                ${item.note ? `<div style="font-size:0.7rem;color:var(--text-dim);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"${escapeHtml(item.note)}"</div>` : ''}
-              </div>
-              <button class="admin-btn" onclick="toggleAdminWishlistDetail('${item.id}')" style="text-transform:uppercase;font-size:0.65rem;padding:2px 8px;">${item.status}</button>
-              <button class="admin-btn danger" onclick="adminDeleteWishlist('${item.id}')">&times;</button>
-            </div>
-            <div id="admin-wish-detail-${item.id}" style="display:none;padding:10px 12px 14px;background:var(--bg-base);border-top:1px solid var(--border-light);">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.8rem;">
-                <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">Title
-                  <input type="text" id="admin-wish-title-${item.id}" value="${escapeHtml(item.title)}" style="width:100%;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
-                </label>
-                <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);">Artist
-                  <input type="text" id="admin-wish-artist-${item.id}" value="${escapeHtml(item.artist || '')}" style="width:100%;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
-                </label>
-              </div>
-              <label style="display:flex;flex-direction:column;gap:2px;color:var(--text-dim);font-size:0.8rem;margin-top:8px;">YouTube URL ${!item.url ? '<span style="color:var(--error);font-size:0.7rem;"> (required to queue)</span>' : ''}
-                <input type="text" id="admin-wish-url-${item.id}" value="${escapeHtml(item.url || '')}" placeholder="https://youtube.com/watch?v=..." style="width:100%;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;font-family:inherit;" />
-              </label>
-              ${item.note ? `<div style="margin-top:8px;font-size:0.75rem;color:var(--text-dim);font-style:italic;">Note: "${escapeHtml(item.note)}"</div>` : ''}
-              <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end;">
-                ${item.status === 'open' ? `<button class="admin-btn" style="padding:5px 16px;" onclick="adminQueueWishlistWithUrl('${item.id}')">Queue</button>` : ''}
-              </div>
-            </div>
-          </div>
-        `).join('') || '<p style="color:var(--text-dim);padding:16px 12px;">No requests.</p>'}
-      </div>`;
-  } catch (e) {
-    container.innerHTML = '<p style="color:var(--error);padding:12px;">Failed to load requests.</p>';
-  }
-}
-
-function toggleAdminWishlistDetail(itemId) {
-  const el = document.getElementById(`admin-wish-detail-${itemId}`);
-  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
-}
-
-async function adminQueueWishlistWithUrl(itemId) {
-  const url = document.getElementById(`admin-wish-url-${itemId}`).value.trim();
-  if (!url) { showAlert('Please enter a YouTube URL before queueing'); return; }
-  try {
-    const resp = await fetch(`/api/admin/wishlist/${itemId}/queue`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, mode: 'karaoke', languages: [] }),
-    });
-    if (!resp.ok) { const d = await resp.json().catch(() => ({})); showAlert(d.detail || 'Failed to queue'); return; }
-    loadAdminWishlist();
-  } catch (e) { showAlert('Error: ' + e.message); }
-}
-
-async function adminDeleteWishlist(itemId) {
-  if (!await showConfirm('Delete this song request?')) return;
-  try {
-    await fetch(`/api/admin/wishlist/${itemId}`, { method: 'DELETE' });
-    loadAdminWishlist();
-  } catch (e) { showAlert('Error: ' + e.message); }
-}
 
 async function loadAdminWorkers() {
-  const container = document.getElementById('admin-system-sub-content') || document.getElementById('admin-tab-system');
+  const container = document.getElementById('admin-tab-workers');
   container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Loading...</p>';
   try {
     const resp = await fetch('/api/admin/workers');
@@ -5951,7 +5852,7 @@ async function loadAdminWorkers() {
 }
 
 async function loadAdminSettings() {
-  const container = document.getElementById('admin-system-sub-content') || document.getElementById('admin-tab-system');
+  const container = document.getElementById('admin-tab-settings');
   container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Loading...</p>';
   try {
     const resp = await fetch('/api/admin/settings');
@@ -6052,6 +5953,32 @@ async function loadAdminSettings() {
             <p style="font-size:0.65rem;color:var(--text-dim);margin:2px 0 0;">Max languages per subtitled/both mode song.</p></div>
         </div>
 
+        <label style="color:var(--text-bright);font-size:0.85rem;font-weight:600;display:block;margin-bottom:4px;">
+          Admin Notifications
+        </label>
+        <p style="font-size:0.7rem;color:var(--text-dim);margin:0 0 8px 0;">Receive email when these events occur.</p>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:0.75rem;color:var(--text-dim);">Notification Email</label>
+          <input type="email" id="set-notify-email" value="${escapeHtml(s.notify_email || '')}" placeholder="admin@example.com" style="width:100%;max-width:320px;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;" />
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-notify-new-user" ${s.notify_new_user ? 'checked' : ''} style="accent-color:var(--accent);" /> New user joined
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-notify-song-request" ${s.notify_song_request ? 'checked' : ''} style="accent-color:var(--accent);" /> Song request submitted
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-notify-production-complete" ${s.notify_production_complete ? 'checked' : ''} style="accent-color:var(--accent);" /> Production completed
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-notify-production-failed" ${s.notify_production_failed ? 'checked' : ''} style="accent-color:var(--accent);" /> Production failed
+          </label>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-notify-new-comment" ${s.notify_new_comment ? 'checked' : ''} style="accent-color:var(--accent);" /> New comment posted
+          </label>
+        </div>
+
         <div style="display:flex;gap:8px;align-items:center;">
           <button class="admin-btn" onclick="saveAdminSettings()">Save Settings</button>
           <span id="admin-settings-status" style="font-size:0.75rem;color:var(--text-dim);"></span>
@@ -6088,6 +6015,12 @@ async function saveAdminSettings() {
     max_disk_space_mb: parseInt(document.getElementById('set-max-disk').value) || 0,
     demucs_model: document.getElementById('set-demucs-model').value,
     max_subtitle_languages: parseInt(document.getElementById('set-max-sub-langs').value) || 3,
+    notify_email: document.getElementById('set-notify-email').value.trim(),
+    notify_new_user: document.getElementById('set-notify-new-user').checked,
+    notify_song_request: document.getElementById('set-notify-song-request').checked,
+    notify_production_complete: document.getElementById('set-notify-production-complete').checked,
+    notify_production_failed: document.getElementById('set-notify-production-failed').checked,
+    notify_new_comment: document.getElementById('set-notify-new-comment').checked,
   };
 
   try {
