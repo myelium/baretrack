@@ -83,9 +83,21 @@ def analyze_lyrics(lyrics_text: str, title: str | None = None,
         # Rest is the analysis (skip blank line after Song: line)
         analysis = "\n".join(lines[1:]).lstrip("\n")
 
-    # Extract year from song_info, e.g. "Alone by Heart (1987)"
+    # Extract year and artist from song_info, e.g. "Alone by Heart (1987)"
     import re
     year_match = re.search(r"\((\d{4})\)", song_info)
     year = year_match.group(1) if year_match else None
 
-    return {"song_info": song_info, "analysis": analysis, "year": year}
+    # Parse artist: split on " by ", strip year/parentheticals from artist
+    identified_artist = None
+    if " by " in song_info:
+        parts = song_info.rsplit(" by ", 1)
+        if len(parts) == 2:
+            artist_raw = parts[1].strip().strip('"')
+            # Remove trailing parentheticals like "(1987)" or "(year unknown)"
+            artist_raw = re.sub(r"\s*\([^)]*\)\s*$", "", artist_raw).strip()
+            if artist_raw:
+                identified_artist = artist_raw
+
+    return {"song_info": song_info, "analysis": analysis, "year": year,
+            "identified_artist": identified_artist}

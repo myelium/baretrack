@@ -300,14 +300,16 @@ def _on_job_completed(job_id: str, data: dict) -> None:
     """Called when a worker reports job completion. Saves metadata to DB and triggers post-processing."""
     # Find queue item for metadata
     queue_item = None
+    active_job = None
     with _lock:
         for item in _queue:
             if item.get("id") == job_id:
                 queue_item = dict(item)
                 break
-        # Remove from queue and active jobs
+        # Preserve active job data (contains artist from worker progress callbacks)
+        active_job = _active_jobs.pop(job_id, None)
+        # Remove from queue
         _queue[:] = [item for item in _queue if item.get("id") != job_id]
-        _active_jobs.pop(job_id, None)
     _save_queue()
 
     # Save to LibraryItem
@@ -319,7 +321,9 @@ def _on_job_completed(job_id: str, data: dict) -> None:
             db.add(meta)
 
         meta.title = meta.title or (queue_item or {}).get("title")
-        meta.artist = meta.artist or data.get("artist") or (queue_item or {}).get("channel")
+        # Artist priority: existing DB value > worker-identified artist (from progress callback) > channel name
+        worker_artist = (active_job or {}).get("artist")
+        meta.artist = meta.artist or worker_artist or (queue_item or {}).get("channel")
         meta.url = (queue_item or {}).get("url")
         meta.mode = data.get("mode") or (queue_item or {}).get("mode", "karaoke")
         meta.languages = json.dumps((queue_item or {}).get("languages", []))
@@ -356,7 +360,7 @@ def _on_job_completed(job_id: str, data: dict) -> None:
             custom_prompt = prompts.get("analysis_prompt") or None
             from analyze_lyrics import analyze_lyrics
             title = (queue_item or {}).get("title")
-            artist = data.get("artist") or (queue_item or {}).get("channel")
+            artist = (active_job or {}).get("artist") or (queue_item or {}).get("channel")
             result = analyze_lyrics(lyrics_text, title=title, artist=artist,
                                     custom_prompt=custom_prompt)
             _db = get_session()
@@ -364,14 +368,10 @@ def _on_job_completed(job_id: str, data: dict) -> None:
             if _meta:
                 _meta.analysis_text = result.get("analysis", "")
                 _meta.analysis_song_info = result.get("song_info", "")
-                if result.get("year"):
+                if result.get("year") and not _meta.year:
                     _meta.year = result["year"]
-                if not _meta.artist and result.get("song_info"):
-                    info = result["song_info"]
-                    if " by " in info:
-                        parts = info.rsplit(" by ", 1)
-                        if len(parts) == 2:
-                            _meta.artist = parts[1].strip().strip('"')
+                if not _meta.artist and result.get("identified_artist"):
+                    _meta.artist = result["identified_artist"]
             _db.commit()
             _db.close()
         except Exception:
@@ -1645,13 +1645,11 @@ def get_analysis(job_id: str, db: Session = Depends(get_db)):
     meta.analysis_text = analysis_text if analysis_text else None
     meta.analysis_song_info = result.get("song_info", "") or None
 
-    # Save identified artist if not already set
-    if not meta.artist and result.get("song_info"):
-        info = result["song_info"]
-        if " by " in info:
-            parts = info.rsplit(" by ", 1)
-            if len(parts) == 2:
-                meta.artist = parts[1].strip().strip('"')
+    # Save identified year/artist if not already set
+    if result.get("year") and not meta.year:
+        meta.year = result["year"]
+    if not meta.artist and result.get("identified_artist"):
+        meta.artist = result["identified_artist"]
 
     db.commit()
     return result
