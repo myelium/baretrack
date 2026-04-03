@@ -2408,6 +2408,12 @@
         <label style="font-size:0.75rem;color:var(--text-dim);font-weight:600;display:block;margin-bottom:4px;">Email</label>
         <input type="email" id="profile-email" required style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;box-sizing:border-box;" />
       </div>
+      <div style="margin-bottom:14px;">
+        <label style="font-size:0.75rem;color:var(--text-dim);font-weight:600;display:block;margin-bottom:4px;">Preferred Language</label>
+        <select id="profile-language" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;box-sizing:border-box;">
+          <option value="">None (show all)</option>
+        </select>
+      </div>
       <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:6px;margin-bottom:14px;">
         <label style="font-size:0.75rem;color:var(--text-dim);font-weight:600;display:block;margin-bottom:4px;">Change Password</label>
         <input type="password" id="profile-current-pw" placeholder="Current password" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;font-family:inherit;margin-bottom:8px;box-sizing:border-box;" />
@@ -3215,7 +3221,7 @@ async function onQueueDrop(e) {
 
 // ---- Mode & Language Selection ----
 
-const LANG_NAMES_ALL = {af:'Afrikaans',sq:'Albanian',am:'Amharic',ar:'Arabic',hy:'Armenian',as:'Assamese',az:'Azerbaijani',ba:'Bashkir',eu:'Basque',be:'Belarusian',bn:'Bengali',bs:'Bosnian',br:'Breton',bg:'Bulgarian',my:'Burmese','zh-Hans':'Chinese (Simplified)','zh-Hant':'Chinese (Traditional)',ca:'Catalan',hr:'Croatian',cs:'Czech',da:'Danish',nl:'Dutch',en:'English',et:'Estonian',fo:'Faroese',fi:'Finnish',fr:'French',gl:'Galician',ka:'Georgian',de:'German',el:'Greek',gu:'Gujarati',ht:'Haitian',ha:'Hausa',haw:'Hawaiian',he:'Hebrew',hi:'Hindi',hu:'Hungarian',is:'Icelandic',id:'Indonesian',it:'Italian',ja:'Japanese',jw:'Javanese',kn:'Kannada',kk:'Kazakh',km:'Khmer',ko:'Korean',lo:'Lao',la:'Latin',lv:'Latvian',ln:'Lingala',lt:'Lithuanian',lb:'Luxembourgish',mk:'Macedonian',mg:'Malagasy',ms:'Malay',ml:'Malayalam',mt:'Maltese',mi:'Maori',mr:'Marathi',mn:'Mongolian',ne:'Nepali',no:'Norwegian',nn:'Norwegian Nynorsk',oc:'Occitan',ps:'Pashto',fa:'Persian',pl:'Polish',pt:'Portuguese',pa:'Punjabi',ro:'Romanian',ru:'Russian',sa:'Sanskrit',sr:'Serbian',sn:'Shona',sd:'Sindhi',si:'Sinhala',sk:'Slovak',sl:'Slovenian',so:'Somali',es:'Spanish',su:'Sundanese',sw:'Swahili',sv:'Swedish',tl:'Tagalog',tg:'Tajik',ta:'Tamil',tt:'Tatar',te:'Telugu',th:'Thai',bo:'Tibetan',tr:'Turkish',tk:'Turkmen',uk:'Ukrainian',ur:'Urdu',uz:'Uzbek',vi:'Vietnamese',cy:'Welsh',yi:'Yiddish',yo:'Yoruba'};
+const LANG_NAMES_ALL = {af:'Afrikaans',sq:'Albanian',am:'Amharic',ar:'Arabic',hy:'Armenian',as:'Assamese',az:'Azerbaijani',ba:'Bashkir',eu:'Basque',be:'Belarusian',bn:'Bengali',bs:'Bosnian',br:'Breton',bg:'Bulgarian',my:'Burmese',zh:'Chinese','zh-Hans':'Chinese (Simplified)','zh-Hant':'Chinese (Traditional)',ca:'Catalan',hr:'Croatian',cs:'Czech',da:'Danish',nl:'Dutch',en:'English',et:'Estonian',fo:'Faroese',fi:'Finnish',fr:'French',gl:'Galician',ka:'Georgian',de:'German',el:'Greek',gu:'Gujarati',ht:'Haitian',ha:'Hausa',haw:'Hawaiian',he:'Hebrew',hi:'Hindi',hu:'Hungarian',is:'Icelandic',id:'Indonesian',it:'Italian',ja:'Japanese',jw:'Javanese',kn:'Kannada',kk:'Kazakh',km:'Khmer',ko:'Korean',lo:'Lao',la:'Latin',lv:'Latvian',ln:'Lingala',lt:'Lithuanian',lb:'Luxembourgish',mk:'Macedonian',mg:'Malagasy',ms:'Malay',ml:'Malayalam',mt:'Maltese',mi:'Maori',mr:'Marathi',mn:'Mongolian',ne:'Nepali',no:'Norwegian',nn:'Norwegian Nynorsk',oc:'Occitan',ps:'Pashto',fa:'Persian',pl:'Polish',pt:'Portuguese',pa:'Punjabi',ro:'Romanian',ru:'Russian',sa:'Sanskrit',sr:'Serbian',sn:'Shona',sd:'Sindhi',si:'Sinhala',sk:'Slovak',sl:'Slovenian',so:'Somali',es:'Spanish',su:'Sundanese',sw:'Swahili',sv:'Swedish',tl:'Tagalog',tg:'Tajik',ta:'Tamil',tt:'Tatar',te:'Telugu',th:'Thai',bo:'Tibetan',tr:'Turkish',tk:'Turkmen',uk:'Ukrainian',ur:'Urdu',uz:'Uzbek',vi:'Vietnamese',cy:'Welsh',yi:'Yiddish',yo:'Yoruba'};
 
 let selectedLanguages = [];
 const MAX_LANGUAGES = 3;
@@ -4473,7 +4479,7 @@ function onTimeUpdate() {
 // ---- Library ----
 
 let libraryItems = [];
-let libraryFilters = { search: '', categories: new Set(), types: new Set(), sort: 'recent' };
+let libraryFilters = { search: '', categories: new Set(), types: new Set(), sort: 'recent', language: '' };
 
 async function loadLibrary() {
   const main = document.getElementById('library-main');
@@ -4542,11 +4548,33 @@ function renderLibraryFilterBar() {
     return;
   }
 
-  // Sort dropdown + search
+  // Collect all available languages (source + subtitle), dedup by base code
+  const langMap = {}; // base code → display name
+  for (const item of libraryItems) {
+    if (item.language) {
+      const code = item.language;
+      const base = code.split('-')[0];
+      if (!langMap[base]) langMap[base] = LANG_NAMES_ALL[code] || LANG_NAMES_ALL[base] || code;
+    }
+    if (item.languages) item.languages.forEach(code => {
+      const base = code.split('-')[0];
+      if (!langMap[base]) langMap[base] = LANG_NAMES_ALL[code] || LANG_NAMES_ALL[base] || code;
+    });
+  }
+  const langFilter = libraryFilters.language || '';
+  const langOpts = Object.entries(langMap).sort((a,b) => a[1].localeCompare(b[1]))
+    .map(([code, name]) => `<option value="${code}" ${langFilter === code ? 'selected' : ''}>${name}</option>`)
+    .join('');
+
+  // Sort dropdown + search + language filter
   const s = libraryFilters.sort;
   bar.innerHTML = `
     <input type="text" placeholder="Search..." value="${escapeHtml(libraryFilters.search)}"
            oninput="libraryFilters.search=this.value; renderLibraryGrid()" />
+    <select onchange="libraryFilters.language=this.value; renderLibraryGrid()" style="min-width:100px;">
+      <option value="">All Languages</option>
+      ${langOpts}
+    </select>
     <select onchange="libraryFilters.sort=this.value; renderLibraryGrid()">
       <option value="recent" ${s === 'recent' ? 'selected' : ''}>Most Recent</option>
       <option value="liked" ${s === 'liked' ? 'selected' : ''}>Most Liked</option>
@@ -4615,6 +4643,15 @@ function renderLibraryGrid() {
         const type = m === 'subtitled' ? 'Subtitled' : 'Karaoke';
         if (!libraryFilters.types.has(type)) return false;
       }
+    }
+    // Language filter — match source language OR subtitle languages
+    if (libraryFilters.language) {
+      const lang = libraryFilters.language;
+      const base = lang.split('-')[0]; // "zh-Hans" → "zh"
+      const matchLang = (code) => code === lang || code.split('-')[0] === base;
+      const isSource = item.language && matchLang(item.language);
+      const hasSub = (item.languages || []).some(matchLang);
+      if (!isSource && !hasSub) return false;
     }
     return true;
   });
@@ -4992,6 +5029,14 @@ function renderProfileInfo() {
     </div>`;
   document.getElementById('profile-name').value = currentUser.name || '';
   document.getElementById('profile-email').value = currentUser.email || '';
+  // Populate language dropdown
+  const langSelect = document.getElementById('profile-language');
+  if (langSelect.options.length <= 1) {
+    Object.entries(LANG_NAMES_ALL).sort((a,b) => a[1].localeCompare(b[1])).forEach(([code, name]) => {
+      langSelect.appendChild(new Option(name, code));
+    });
+  }
+  langSelect.value = currentUser.preferred_language || '';
   document.getElementById('profile-current-pw').value = '';
   document.getElementById('profile-new-pw').value = '';
   document.getElementById('profile-message').style.display = 'none';
@@ -5020,11 +5065,38 @@ async function saveProfile(e) {
     body.current_password = currentPw;
   }
 
-  if (Object.keys(body).length === 0) {
+  // Save language preference via settings endpoint
+  const selectedLang = document.getElementById('profile-language').value;
+  const langChanged = selectedLang !== (currentUser.preferred_language || '');
+  if (langChanged) {
+    try {
+      await fetch('/api/auth/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferred_language: selectedLang }),
+      });
+      currentUser.preferred_language = selectedLang || null;
+      libraryFilters.language = selectedLang ? selectedLang.split('-')[0] : '';
+      renderLibraryFilterBar();
+      renderLibraryGrid();
+    } catch (e) {}
+  }
+
+  if (Object.keys(body).length === 0 && !langChanged) {
     btn.disabled = false;
     btn.textContent = 'Save Changes';
     msg.textContent = 'No changes to save.';
     msg.style.color = 'var(--text-muted)';
+    msg.style.display = 'block';
+    return;
+  }
+
+  if (Object.keys(body).length === 0) {
+    // Only language changed, already saved above
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+    msg.textContent = 'Profile updated!';
+    msg.style.color = 'var(--success)';
     msg.style.display = 'block';
     return;
   }
@@ -7019,6 +7091,14 @@ async function init() {
     }
   } catch (e) {
     if (!isSharedLink) { window.location.href = '/login'; return; }
+  }
+
+  // Set language filter from user preference or browser locale
+  if (currentUser && currentUser.preferred_language) {
+    libraryFilters.language = currentUser.preferred_language.split('-')[0];
+  } else {
+    const browserLang = (navigator.language || 'en').split('-')[0];
+    libraryFilters.language = browserLang;
   }
 
   // Load public settings (allowed modes, feature flags)

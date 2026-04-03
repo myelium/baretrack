@@ -29,6 +29,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="user")  # "user" or "admin"
     theme: Mapped[str] = mapped_column(String(20), default="retro")  # "retro", "spotify", "disco"
     dark_mode: Mapped[str] = mapped_column(String(20), default="dark")  # "dark", "day", "night"
+    preferred_language: Mapped[str | None] = mapped_column(String(10))  # e.g. "en", "vi", "zh"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     invited_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -45,6 +46,7 @@ class User(Base):
             "role": self.role,
             "theme": self.theme,
             "dark_mode": self.dark_mode,
+            "preferred_language": self.preferred_language,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_login": self.last_login.isoformat() if self.last_login else None,
             "invited_by_id": str(self.invited_by_id) if self.invited_by_id else None,

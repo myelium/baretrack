@@ -637,6 +637,7 @@ class LoginRequest(BaseModel):
 class SettingsRequest(BaseModel):
     theme: str | None = None
     dark_mode: str | None = None
+    preferred_language: str | None = None
 
 
 def _set_auth_cookie(response: Response, user: User) -> None:
@@ -800,6 +801,8 @@ def update_settings(req: SettingsRequest, user: User = Depends(get_current_user)
         user.theme = req.theme
     if req.dark_mode and req.dark_mode in ("dark", "day", "night"):
         user.dark_mode = req.dark_mode
+    if req.preferred_language is not None:
+        user.preferred_language = req.preferred_language or None
     db.commit()
     return {"user": user.to_dict()}
 
