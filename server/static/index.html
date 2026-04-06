@@ -820,6 +820,44 @@
     padding: 0 20px;
     line-height: 1.4;
   }
+  .karaoke-overlay {
+    position: absolute;
+    bottom: 60px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+    padding: 0 20px;
+    line-height: 1.6;
+  }
+  .karaoke-overlay .k-word {
+    font-weight: 700;
+    font-size: clamp(18px, 4vh, 36px);
+    color: #808080;
+    -webkit-text-stroke: 1px #000;
+    text-shadow: 0 0 4px #000, 0 0 8px #000, 2px 2px 3px rgba(0,0,0,0.8);
+    font-family: Arial, sans-serif;
+    display: inline;
+  }
+  .karaoke-overlay .k-word.sung {
+    color: #FFD700;
+    -webkit-text-fill-color: #FFD700;
+    background: none !important;
+    -webkit-background-clip: unset !important;
+  }
+  .karaoke-overlay .k-line-bg {
+    display: inline-block;
+    background: rgba(0, 0, 0, 0.45);
+    border-radius: 6px;
+    padding: 4px 16px;
+  }
+  .video-container:fullscreen .karaoke-overlay {
+    bottom: 80px;
+  }
+  .video-container:fullscreen .karaoke-overlay .k-word {
+    font-size: clamp(24px, 5vh, 48px);
+  }
   .subtitle-controls {
     position: absolute;
     bottom: 8px;
@@ -3908,30 +3946,8 @@ async function showPlayerForJob(jobId) {
   if (_cDiv) _cDiv.classList.remove('will-expand');
   window.location.hash = `/watch/${jobId}`;
 
-  const jobMode = _playerItem.mode || 'karaoke';
-
   // Load comments for this song
   loadComments(jobId);
-
-  if (jobMode === 'subtitled') {
-    _tabsEl().innerHTML = '';
-    try {
-      const resp = await fetch(`/api/jobs/${jobId}/lyrics`);
-      lyricsData = await resp.json();
-    } catch (e) { lyricsData = []; }
-    const _subItem = libraryItems.find(i => i.id === jobId);
-    const _subUrl = _subItem?.url || _playerItem?.url || '';
-    const _subLangs = _subItem?.languages || _playerItem?.languages || [];
-    renderSubtitledPlayer(jobId, _subUrl, _subLangs);
-    renderLyrics();
-    const lyricsTabs = document.getElementById('lyrics-tabs');
-    if (lyricsTabs) {
-      lyricsTabs.style.display = (lyricsData && lyricsData.length > 0) ? 'flex' : 'none';
-      switchLyricsTab('live');
-    }
-    setTimeout(_syncPlayerHeight, 100);
-    return;
-  }
 
   try {
     const resp = await fetch(`/api/jobs/${jobId}/lyrics`);
@@ -4115,13 +4131,14 @@ function switchTab(tab, jobId) {
   const shareIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`;
   const shareBtn = userCan('can_share_library') ? `<button class="player-share-btn" onclick="sharePlayer()" title="Copy link">${shareIcon}</button>` : '';
 
-  const flipBtn = _isBothMode(id) ? `<button class="karaoke-fullscreen-btn-inline" onclick="flipPlayerMode('${id}')" title="${tab === 'video' ? 'Subtitled Mode' : 'Karaoke Mode'}"><svg width="24" height="24" viewBox="0 0 512 512" fill="currentColor"><path d="m56 368h92.453l-15.891 42.383c-4.0742 10.031 4.1445 21.922 14.98 21.617h72.914c10.824 0.30078 19.066-11.582 14.98-21.617l-15.891-42.383h92.453c22.055 0 40-17.945 40-40v-72c-0.23047-10.543-15.797-10.504-16 0v72c0 13.234-10.766 24-24 24h-256c-13.234 0-24-10.766-24-24v-176c0-13.234 10.766-24 24-24h256c13.234 0 24 10.766 24 24v24c0.14453 10.531 15.855 10.488 16 0v-24c0-22.055-17.945-40-40-40h-256c-22.055 0-40 17.945-40 40v176c0 22.055 17.945 40 40 40zm109.54 0h36.914l18 48-72.922 0.027344c0.003906-0.003907 18-48.016 18.008-48.027z"/><path d="m456 79.996h-256c-9.6484 0-19.02 3.543-26.383 9.9766-7.7734 6.9688 2.5547 18.887 10.523 12.047 4.4492-3.8828 10.082-6.0234 15.859-6.0234h256c13.234 0 24 10.766 24 24v176c0 13.234-10.766 24-24 24h-88c-10.492 0.12109-10.516 15.855 0 16h88c22.055 0 40-17.945 40-40v-176c0-22.055-17.945-40-40-40z"/><path d="m283.52 376c-16.137 2.2383-5.3672 25.176 8 24h72.961c10.812 0.32812 19.086-11.656 14.934-21.605l-10.242-27.359c-1.5469-4.1406-6.1523-6.2422-10.297-4.6875-4.1367 1.5508-6.2383 6.1602-4.6875 10.297l10.293 27.355h-72.961c0-4.418-3.582-8-8-8z"/><path d="m232 200c0 4.418 3.582 8 8 8h160c6.9023 0.22656 10.719-8.9297 5.6562-13.656l-32-32c-7.4258-7.3633-18.68 3.8828-11.312 11.312l18.344 18.344h-140.69c-4.418 0-8 3.582-8 8z"/><path d="m408 232c0-4.418-3.582-8-8-8h-160c-6.9023-0.22656-10.719 8.9297-5.6562 13.656l32 32c7.4258 7.3633 18.68-3.8828 11.312-11.312l-18.344-18.344h140.69c4.418 0 8-3.582 8-8z"/></svg></button>` : '';
-
   if (tab === 'video') {
     _currentPlayerTab = 'video';
+    const item = libraryItems.find(i => i.id === id) || _playerItem || {};
+    const isLegacy = !item.format_version || item.format_version < 2;
     area.innerHTML = `
       <div class="video-container" id="karaoke-video-container">
-        <video id="media-el" controls preload="auto" src="/api/jobs/${id}/video" autoplay></video>
+        <video id="media-el" controls preload="auto" src="/api/jobs/${id}/video" autoplay ${isLegacy ? '' : 'muted'}></video>
+        <div class="karaoke-overlay" id="karaoke-overlay"></div>
       </div>
       <div class="tab-download">
         <div class="tab-download-left">
@@ -4132,10 +4149,13 @@ function switchTab(tab, jobId) {
             </svg>
             <input type="range" id="vocal-volume-slider" class="vocal-volume-slider" min="0" max="100" value="100" oninput="setVocalsVolume(this.value)">
           </div>
+          <label class="toggle-label" style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Toggle karaoke subtitles">
+            <input type="checkbox" id="karaoke-sub-toggle" ${_karaokeOverlayOn ? 'checked' : ''} onchange="toggleKaraokeOverlay(this.checked)" style="accent-color:#ffd700">
+            Lyrics
+          </label>
           <button class="karaoke-fullscreen-btn-inline" onclick="toggleKaraokeFullscreen()" title="Fullscreen">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
           </button>
-          ${flipBtn}
         </div>
         ${_renderPlayerTitleInfo(id)}
         <div class="tab-download-right">
@@ -4146,21 +4166,6 @@ function switchTab(tab, jobId) {
   } else if (tab === 'instrumental') {
     area.innerHTML = `
       <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/instrumental"></audio>`;
-  } else if (tab === 'subtitled') {
-    _currentPlayerTab = 'subtitled';
-    // Subtitled tab for "both" mode — render YouTube player with subtitle overlay
-    const _item = libraryItems.find(i => i.id === id);
-    const langs = _item?.languages || _playerItem?.languages || [];
-    const _url = _item?.url || _playerItem?.url || '';
-    renderSubtitledPlayer(id, _url, langs);
-    renderLyrics();
-    const lyricsTabs = document.getElementById('lyrics-tabs');
-    if (lyricsTabs) {
-      lyricsTabs.style.display = (lyricsData && lyricsData.length > 0) ? 'flex' : 'none';
-      switchLyricsTab('live');
-    }
-    setTimeout(_syncPlayerHeight, 100);
-    return;
   } else {
     area.innerHTML = `
       <audio id="media-el" controls preload="metadata" src="/api/jobs/${id}/vocals"></audio>`;
@@ -4176,15 +4181,23 @@ function switchTab(tab, jobId) {
   // Start lyrics RAF immediately if already playing (e.g. autoplay)
   if (!activeMediaEl.paused) _startLyricsRaf();
 
-  // Pre-load vocals and auto-enable once video actually starts playing
+  // Pre-load audio tracks and auto-enable once video actually starts playing
   if (tab === 'video') {
+    const _item = libraryItems.find(i => i.id === id) || _playerItem || {};
+    const _isLegacy = !_item.format_version || _item.format_version < 2;
     preloadVocalsAudio(id);
-    // We can't call .play() on the vocals Audio until the user interacts.
+    if (!_isLegacy) preloadInstrumentalAudio(id);
+    buildKaraokeLines();
+    // We can't call .play() on Audio elements until the user interacts.
     // The video element has autoplay, but that doesn't grant play permission
     // to a separate Audio object. So we hook into the video's first 'playing'
     // event — by that point the browser has granted audio context permission.
-    const startVocalsOnce = () => {
-      activeMediaEl.removeEventListener('playing', startVocalsOnce);
+    const startAudioOnce = () => {
+      activeMediaEl.removeEventListener('playing', startAudioOnce);
+      if (instrumentalAudioEl) {
+        instrumentalAudioEl.volume = 1.0;
+        _playInstrumental();
+      }
       if (vocalsAudioEl) {
         vocalsAudioEl.volume = _vocalsVolume;
         vocalsOn = true;
@@ -4192,7 +4205,7 @@ function switchTab(tab, jobId) {
         _updateVocalIcon();
       }
     };
-    activeMediaEl.addEventListener('playing', startVocalsOnce);
+    activeMediaEl.addEventListener('playing', startAudioOnce);
   }
 
   renderLyrics();
@@ -4282,6 +4295,104 @@ function destroyVocalsSync() {
   }
   vocalsOn = false;
   _currentVideoJobId = null;
+  destroyInstrumentalSync();
+}
+
+// --- Instrumental audio sync ---
+let instrumentalAudioEl = null;
+
+function preloadInstrumentalAudio(jobId) {
+  destroyInstrumentalSync();
+  instrumentalAudioEl = new Audio(`/api/jobs/${jobId}/instrumental`);
+  instrumentalAudioEl.preload = 'auto';
+  instrumentalAudioEl.volume = 1.0;
+  instrumentalAudioEl.addEventListener('error', () => {
+    // Legacy song: no separate instrumental file
+    instrumentalAudioEl = null;
+  });
+}
+
+function destroyInstrumentalSync() {
+  if (instrumentalAudioEl) {
+    instrumentalAudioEl.pause();
+    instrumentalAudioEl.src = '';
+    instrumentalAudioEl = null;
+  }
+}
+
+function _playInstrumental() {
+  if (!instrumentalAudioEl || !activeMediaEl) return;
+  instrumentalAudioEl.currentTime = activeMediaEl.currentTime;
+  instrumentalAudioEl.play().then(() => {
+    if (activeMediaEl && activeMediaEl.paused) instrumentalAudioEl.pause();
+  }).catch(() => {});
+}
+
+// --- Karaoke subtitle overlay ---
+let karaokeLines = [];
+let _karaokeOverlayOn = true;
+const KARAOKE_WORDS_PER_LINE = 6;
+
+function buildKaraokeLines() {
+  karaokeLines = [];
+  if (!lyricsData || lyricsData.length === 0) return;
+  let currentLine = [];
+  for (let i = 0; i < lyricsData.length; i++) {
+    currentLine.push(lyricsData[i]);
+    const isLast = i === lyricsData.length - 1;
+    const gap = !isLast ? lyricsData[i + 1].start - lyricsData[i].end : 0;
+    if (isLast || gap >= 0.3 || currentLine.length >= KARAOKE_WORDS_PER_LINE) {
+      karaokeLines.push({
+        words: [...currentLine],
+        start: currentLine[0].start,
+        end: currentLine[currentLine.length - 1].end
+      });
+      currentLine = [];
+    }
+  }
+}
+
+function updateKaraokeOverlay(t) {
+  const overlay = document.getElementById('karaoke-overlay');
+  if (!overlay) return;
+  if (!_karaokeOverlayOn || karaokeLines.length === 0) {
+    overlay.innerHTML = '';
+    return;
+  }
+
+  // Find active line
+  let activeLine = null;
+  for (const line of karaokeLines) {
+    if (t >= line.start - 0.3 && t <= line.end + 0.5) {
+      activeLine = line;
+      break;
+    }
+  }
+  if (!activeLine) { overlay.innerHTML = ''; return; }
+
+  // Build word spans with gradient fill
+  let html = '<span class="k-line-bg">';
+  for (const w of activeLine.words) {
+    const progress = Math.max(0, Math.min(1, (t - w.start) / Math.max(0.01, w.end - w.start)));
+    const pct = Math.round(progress * 100);
+    if (t >= w.end) {
+      html += `<span class="k-word sung">${w.text} </span>`;
+    } else if (t >= w.start) {
+      html += `<span class="k-word" style="background:linear-gradient(90deg, #FFD700 ${pct}%, #808080 ${pct}%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">${w.text} </span>`;
+    } else {
+      html += `<span class="k-word">${w.text} </span>`;
+    }
+  }
+  html += '</span>';
+  overlay.innerHTML = html;
+}
+
+function toggleKaraokeOverlay(on) {
+  _karaokeOverlayOn = on;
+  if (!on) {
+    const overlay = document.getElementById('karaoke-overlay');
+    if (overlay) overlay.innerHTML = '';
+  }
 }
 
 function _playVocals() {
@@ -4294,11 +4405,13 @@ function _playVocals() {
 }
 
 function onMediaPlay() {
+  if (instrumentalAudioEl) _playInstrumental();
   if (vocalsAudioEl && vocalsOn) _playVocals();
   _startLyricsRaf();
 }
 
 function onMediaPause() {
+  if (instrumentalAudioEl) instrumentalAudioEl.pause();
   if (vocalsAudioEl) {
     vocalsAudioEl.pause();
     vocalsAudioEl.removeAttribute('autoplay');
@@ -4308,15 +4421,17 @@ function onMediaPause() {
   if (activeMediaEl) updateLyricsHighlight(activeMediaEl.currentTime);
 }
 
-// Failsafe: periodically check if vocals are out of sync with video pause state
+// Failsafe: periodically check if audio is out of sync with video pause state
 setInterval(() => {
-  if (!vocalsAudioEl || !activeMediaEl || !vocalsOn) return;
-  if (activeMediaEl.paused && !vocalsAudioEl.paused) {
-    vocalsAudioEl.pause();
+  if (!activeMediaEl) return;
+  if (activeMediaEl.paused) {
+    if (instrumentalAudioEl && !instrumentalAudioEl.paused) instrumentalAudioEl.pause();
+    if (vocalsAudioEl && vocalsOn && !vocalsAudioEl.paused) vocalsAudioEl.pause();
   }
 }, 500);
 
 function onMediaSeeked() {
+  if (instrumentalAudioEl && !activeMediaEl.paused) _playInstrumental();
   if (vocalsAudioEl && vocalsOn && !activeMediaEl.paused) {
     _playVocals();
   }
@@ -4446,7 +4561,9 @@ let _lyricsRafId = null;
 
 function _lyricsRafLoop() {
   if (!activeMediaEl) { _lyricsRafId = null; return; }
-  updateLyricsHighlight(activeMediaEl.currentTime);
+  const t = activeMediaEl.currentTime;
+  updateLyricsHighlight(t);
+  updateKaraokeOverlay(t);
   _lyricsRafId = requestAnimationFrame(_lyricsRafLoop);
 }
 
@@ -4459,14 +4576,25 @@ function _stopLyricsRaf() {
 }
 
 function onTimeUpdate() {
-  // Drift correction for vocal sync — check every 2s
-  if (vocalsAudioEl && vocalsOn && !activeMediaEl.paused) {
+  // Drift correction for audio sync — check every 2s
+  if (!activeMediaEl.paused) {
     const now = performance.now();
     if (now - _lastDriftCorrection > 2000) {
-      const expected = activeMediaEl.currentTime + VOCALS_OFFSET;
-      const drift = vocalsAudioEl.currentTime - expected;
-      if (Math.abs(drift) > VOCALS_DRIFT_THRESHOLD) {
-        vocalsAudioEl.currentTime = expected;
+      const videoTime = activeMediaEl.currentTime;
+      // Instrumental drift correction
+      if (instrumentalAudioEl) {
+        const iDrift = instrumentalAudioEl.currentTime - videoTime;
+        if (Math.abs(iDrift) > VOCALS_DRIFT_THRESHOLD) {
+          instrumentalAudioEl.currentTime = videoTime;
+        }
+      }
+      // Vocals drift correction
+      if (vocalsAudioEl && vocalsOn) {
+        const expected = videoTime + VOCALS_OFFSET;
+        const drift = vocalsAudioEl.currentTime - expected;
+        if (Math.abs(drift) > VOCALS_DRIFT_THRESHOLD) {
+          vocalsAudioEl.currentTime = expected;
+        }
       }
       _lastDriftCorrection = now;
     }

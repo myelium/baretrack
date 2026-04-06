@@ -30,10 +30,9 @@ import httpx
 import torch
 
 # Pipeline imports — these are the core processing modules
-from karaoke.compose import compose
 from karaoke.download import download, download_audio, fetch_metadata
 from karaoke.separate import separate
-from karaoke.subtitles import build_ass, build_srt
+from karaoke.subtitles import build_srt
 from karaoke.transcribe import transcribe
 from karaoke.translate import translate_srt
 
@@ -46,7 +45,12 @@ SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "5"))  # seconds between polls
 DEVICE = os.getenv("DEVICE", "auto").lower()
 if DEVICE == "auto":
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        DEVICE = "cuda"
+    elif torch.backends.mps.is_available():
+        DEVICE = "mps"
+    else:
+        DEVICE = "cpu"
 DEMUCS_MODEL = os.getenv("DEMUCS_MODEL", "htdemucs_ft")
 WORK_DIR = Path(os.getenv("WORKER_WORK_DIR", "worker_output"))
 
@@ -577,6 +581,134 @@ def _run_combined_pipeline(job_id: str, url: str, output_dir: Path,
     }
 
 
+def _run_unified_pipeline(job_id: str, url: str, output_dir: Path,
+                          languages: list[str], callback_url: str,
+                          callback_key: str, settings: dict):
+    """Unified pipeline: download → separate → transcribe → translate.
+    No compose step — the player handles video + audio + subtitles separately."""
+    device = DEVICE
+    demucs_model = settings.get("demucs_model", DEMUCS_MODEL)
+    work_dir = output_dir / "work"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    video_path = work_dir / "video.mp4"
+    audio_path = work_dir / "audio.wav"
+    instrumental_mp3 = output_dir / "instrumental.mp3"
+    vocals_mp3 = output_dir / "vocals.mp3"
+    step_durations = {}
+
+    # Step 1: Download
+    t0 = time.monotonic()
+    _report_progress(callback_url, callback_key, job_id,
+                     step=1, step_name="Downloading", step_progress=0.0)
+
+    def _dl_progress(pct):
+        _report_progress(callback_url, callback_key, job_id, step_progress=pct)
+
+    video_path, audio_path = download(url, work_dir, progress_callback=_dl_progress)
+    step_durations["1"] = time.monotonic() - t0
+    _report_progress(callback_url, callback_key, job_id, step_progress=1.0)
+
+    audio_duration = _get_audio_duration(audio_path)
+    _report_progress(callback_url, callback_key, job_id, audio_duration=audio_duration)
+
+    # Copy video to output dir for upload
+    video_output = output_dir / "video.mp4"
+    shutil.copy2(video_path, video_output)
+
+    # Step 2: Separate
+    if _check_cancel(): return None
+    t0 = time.monotonic()
+    _report_progress(callback_url, callback_key, job_id,
+                     step=2, step_name="Separating vocals", step_progress=0.0)
+    instrumental_wav, vocals_wav = separate(audio_path, work_dir / "demucs",
+                                            device=device, model=demucs_model)
+    _convert_to_mp3(instrumental_wav, instrumental_mp3)
+    _convert_to_mp3(vocals_wav, vocals_mp3)
+    instrumental_wav.unlink(missing_ok=True)
+    vocals_wav.unlink(missing_ok=True)
+    step_durations["2"] = time.monotonic() - t0
+    _report_progress(callback_url, callback_key, job_id, step_progress=1.0)
+
+    # Step 3: Transcribe
+    if _check_cancel(): return None
+    t0 = time.monotonic()
+    _report_progress(callback_url, callback_key, job_id,
+                     step=3, step_name="Transcribing lyrics", step_progress=0.0)
+    transcribe_path = audio_path if audio_path.exists() else vocals_mp3
+    segments, detected_lang = transcribe(transcribe_path, device=device)
+    if audio_path.exists() and audio_path != vocals_mp3:
+        audio_path.unlink(missing_ok=True)
+    _report_progress(callback_url, callback_key, job_id, language_detected=detected_lang)
+
+    words_list = []
+    for seg in segments:
+        for w in seg.words:
+            words_list.append({"text": w.text, "start": w.start, "end": w.end})
+
+    if settings.get("feature_lyrics_correction", True):
+        _report_progress(callback_url, callback_key, job_id,
+                         step_name="Correcting lyrics", step_progress=0.8)
+        try:
+            from karaoke.correct_lyrics import correct_lyrics
+            with _lock:
+                title = _current_job.get("title") if _current_job else None
+                channel = _current_job.get("channel") if _current_job else None
+            correction = correct_lyrics(words_list, title=title, artist=channel)
+            words_list = correction["words"]
+            if correction.get("identified_artist"):
+                _report_progress(callback_url, callback_key, job_id,
+                                 artist=correction["identified_artist"])
+        except Exception:
+            pass
+
+    (output_dir / "lyrics.json").write_text(json.dumps(words_list))
+
+    from karaoke.transcribe import Word as TWord
+    corrected_words = [TWord(text=w["text"], start=w["start"], end=w["end"]) for w in words_list]
+    segments = _words_to_segments(corrected_words)
+    step_durations["3"] = time.monotonic() - t0
+    _report_progress(callback_url, callback_key, job_id, step_progress=1.0)
+
+    # Step 4: Translate (optional)
+    srt_data = {}
+    if languages and settings.get("feature_translation", True):
+        t0 = time.monotonic()
+        source_srt_path = output_dir / "subtitles_source.srt"
+        build_srt(segments, source_srt_path)
+        source_srt_text = source_srt_path.read_text()
+        source_srt_path.unlink(missing_ok=True)
+
+        with _lock:
+            _title = _current_job.get("title") if _current_job else None
+            _channel = _current_job.get("channel") if _current_job else None
+        max_langs = settings.get("max_subtitle_languages", 3)
+        target_langs = languages[:max_langs]
+        for i, lang in enumerate(target_langs):
+            if _check_cancel(): return None
+            _report_progress(callback_url, callback_key, job_id,
+                             step=4, step_name=f"Translating ({lang})",
+                             step_progress=i / len(target_langs))
+            try:
+                translated_srt = translate_srt(source_srt_text, lang,
+                                               title=_title, artist=_channel)
+                srt_name = f"subtitles_{lang}.srt"
+                (output_dir / srt_name).write_text(translated_srt)
+                srt_data[lang] = translated_srt
+            except Exception as e:
+                logger.error("Translation to %s failed: %s", lang, e)
+        step_durations["4"] = time.monotonic() - t0
+        _report_progress(callback_url, callback_key, job_id, step_progress=1.0)
+
+    return {
+        "audio_duration": audio_duration,
+        "language_detected": detected_lang,
+        "step_durations": step_durations,
+        "words_list": words_list,
+        "srt_data": srt_data,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Job execution thread
 # ---------------------------------------------------------------------------
@@ -636,18 +768,9 @@ def _execute_job(job: dict):
 
         pipeline_start = time.monotonic()
 
-        if mode == "subtitled":
-            result = _run_subtitled_pipeline(
-                job_id, url, output_dir, languages,
-                callback_url, callback_key, settings)
-        elif mode == "both":
-            result = _run_combined_pipeline(
-                job_id, url, output_dir, languages,
-                callback_url, callback_key, settings)
-        else:
-            result = _run_karaoke_pipeline(
-                job_id, url, output_dir,
-                callback_url, callback_key, settings)
+        result = _run_unified_pipeline(
+            job_id, url, output_dir, languages,
+            callback_url, callback_key, settings)
 
         pipeline_elapsed = time.monotonic() - pipeline_start
         if result:
@@ -685,7 +808,7 @@ def _execute_job(job: dict):
 
         # Collect files to upload
         upload_files = {}
-        for fname in ["karaoke.mp4", "instrumental.mp3", "vocals.mp3", "lyrics.json"]:
+        for fname in ["video.mp4", "instrumental.mp3", "vocals.mp3", "lyrics.json"]:
             fpath = output_dir / fname
             if fpath.exists():
                 upload_files[fname] = fpath

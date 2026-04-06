@@ -28,9 +28,9 @@ def separate(audio_path: Path, output_dir: Path, device: str = "cpu", model: str
         "--out", str(output_dir),
         str(audio_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"Demucs failed (exit {result.returncode}):\n{result.stderr[-2000:]}")
+        raise RuntimeError(f"Demucs failed (exit {result.returncode})")
 
     # Demucs outputs to: output_dir/<model>/<stem_name>/{vocals,no_vocals}.wav
     stem_name = audio_path.stem

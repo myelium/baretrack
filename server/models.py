@@ -227,6 +227,7 @@ class LibraryItem(Base):
     file_size_bytes: Mapped[int | None] = mapped_column(sa.BigInteger)
     lyrics: Mapped[str | None] = mapped_column(Text)  # JSON array of {text, start, end}
     subtitles: Mapped[str | None] = mapped_column(Text)  # JSON: {"en": "srt content", "vi": "srt content"}
+    format_version: Mapped[int | None] = mapped_column(Integer, default=1)  # 1=legacy (karaoke.mp4), 2=unified (video.mp4)
 
     def to_dict(self):
         return {
@@ -259,6 +260,7 @@ class LibraryItem(Base):
             "added_by": self.added_by,
             "added_by_id": self.added_by_id,
             "view_count": self.view_count or 0,
+            "format_version": self.format_version or 1,
         }
 
 

@@ -1,6 +1,7 @@
 yt-dlp
-torch==2.5.1
-torchaudio==2.5.1
+torch==2.11.0
+torchaudio==2.11.0
+torchcodec
 soundfile
 demucs
 faster-whisper

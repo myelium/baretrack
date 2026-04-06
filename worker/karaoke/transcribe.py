@@ -120,7 +120,9 @@ def _transcribe_whisper(audio_path: Path, device: str = "cpu",
                         language: str | None = None,
                         translate: bool = False) -> tuple[list[Segment], str]:
     """Transcribe using faster-whisper large-v3."""
-    model = WhisperModel("large-v3-turbo", device=device, compute_type="int8")
+    # faster-whisper (CTranslate2) only supports cpu and cuda, not mps
+    whisper_device = "cpu" if device == "mps" else device
+    model = WhisperModel("large-v3", device=whisper_device, compute_type="int8")
     raw_segments, info = model.transcribe(
         str(audio_path),
         word_timestamps=True,

@@ -298,6 +298,7 @@ def _on_job_completed(job_id: str, data: dict) -> None:
             meta.lyrics = data["lyrics"]
         if data.get("subtitles"):
             meta.subtitles = data["subtitles"]
+        meta.format_version = 2
 
         db.commit()
         db.close()
@@ -1346,7 +1347,14 @@ def _serve_file(job_id: str, filename: str, media_type: str, label: str = "File"
 
 @app.get("/api/jobs/{job_id}/video")
 def stream_video(job_id: str):
-    return _serve_file(job_id, "karaoke.mp4", "video/mp4", "Video")
+    """Serve video file — try new format (video.mp4) first, fall back to legacy (karaoke.mp4)."""
+    url = storage.get_url(f"jobs/{job_id}/video.mp4")
+    if url:
+        return RedirectResponse(url, status_code=302)
+    url = storage.get_url(f"jobs/{job_id}/karaoke.mp4")
+    if url:
+        return RedirectResponse(url, status_code=302)
+    raise HTTPException(404, "Video not found")
 
 
 @app.get("/api/jobs/{job_id}/instrumental")
